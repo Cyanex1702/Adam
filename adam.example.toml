@@ -1,0 +1,21 @@
+# Reference model requested by the specification. Copy to adam.local.toml to override.
+[model]
+provider = "llama_cpp"
+base_url = "http://127.0.0.1:8080"
+model_id = "qwen3-8b"
+display_name = "Qwen3-8B"
+quantization = "Q4_K_M"
+languages = ["en"]
+context_limit = 8192
+max_tokens = 1024
+timeout_seconds = 120
+
+[features]
+text = true
+
+# Knowledge files outside cwd require an explicit root.
+[knowledge]
+enabled = true
+allowed_roots = ["."]
+chunk_chars = 1000
+embedding_threads = 2

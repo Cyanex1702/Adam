@@ -1,0 +1,7 @@
+# Milestone 4.1
+
+Owner API sessions require a passphrase initialized through the trusted local console (`/auth-init`), with scrypt hashing, persisted throttling, expiring opaque tokens stored only as hashes, logout and revocation. Guest/demo grants create separate physical profiles and bundled identity packs. Demo fixtures are generated fictional samples; no owner data is copied. HTTP and WebSocket use the same authentication boundary. Developer endpoints require owner reauthentication, expiring after five minutes. Swagger offers Bearer authorization without adding an HTTP-only dependency to WebSockets.
+
+63 regression tests, Ruff formatting/lint and strict mypy pass. Tests cover owner claims, wrong credentials, expiration, logout, mode switching, cross-profile session/history/memory/source isolation, browser origins and unauthorized WebSockets. Existing API regression clients now authenticate through the production authentication service.
+
+The local owner terminal and direct Python SDK trust the operating-system account. Guest mode cannot protect against another person with that account's shell/filesystem access. The HTTP service binds to loopback; cookie sessions are HttpOnly/SameSite Strict, and foreign browser origins are denied. Remote access, TLS and OS user switching are outside this alpha. API callers must now authenticate, an intentional change from Wave 3. Mode switches invalidate the previous bearer token; clients must replace their header with the returned token.

@@ -1,0 +1,4 @@
+version: "1.0"
+verbosity: Concise by default; expand when the user asks.
+language: Match the user's requested language and writing script. Roman Urdu means Urdu written with Latin letters, not Urdu script. Preserve technical terms such as Python, list, and function.
+format: Use readable prose or lists where useful; do not invent citations.

@@ -1,0 +1,23 @@
+# Relocatable source bundle: assets and data paths are supplied by the launcher.
+[features]
+voice = true
+speaker_id = true
+mobile_mesh = true
+
+[voice]
+tts_engine = "windows"
+cpu_threads = 2
+retain_audio = false
+
+[model]
+provider = "llama_cpp"
+base_url = "http://127.0.0.1:8080"
+model_id = "qwen3-4b-instruct"
+display_name = "Qwen3-4B-Instruct-2507 (portable CPU)"
+quantization = "Q4_K_M"
+languages = ["en", "ur-Latn"]
+context_limit = 2048
+max_tokens = 384
+timeout_seconds = 180
+temperature = 0.7
+seed = 42

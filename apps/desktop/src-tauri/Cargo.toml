@@ -1,0 +1,29 @@
+[package]
+name = "adam-desktop"
+version = "0.20.0"
+description = "ADAM local desktop workspace"
+edition = "2021"
+rust-version = "1.90"
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+futures-util = "0.3"
+uuid = "1"
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+[profile.release]
+strip = true
+codegen-units = 8
+lto = false
+[profile.dev]
+debug = 0
+incremental = false

@@ -1,0 +1,14 @@
+# Optional candidate: fits hardware but failed multilingual stability tests.
+# This profile is not the accepted starter model.
+[model]
+provider = "llama_cpp"
+base_url = "http://127.0.0.1:8080"
+model_id = "qwen3-4b-abliterated"
+display_name = "Qwen3-4B-Instruct-2507 Abliterated"
+quantization = "Q4_K_M"
+languages = ["en", "ur-Latn"]
+context_limit = 4096
+max_tokens = 768
+timeout_seconds = 120
+temperature = 0.6
+seed = 42

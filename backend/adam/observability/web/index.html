@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADAM developer console</title><link rel="stylesheet" href="/console.css"><script src="/console.js" defer></script></head>
+<body><main><h1>ADAM developer console</h1><p>Operational evidence and measured timings. Chat text and hidden reasoning are never traced.</p>
+<form id="login"><label>Owner passphrase <input id="password" type="password" autocomplete="current-password" required></label><button>Unlock developer mode</button></form>
+<p id="notice" role="status">Owner login and fresh reauthentication required.</p>
+<section id="workspace" hidden><nav><button id="refresh">Refresh</button><button id="logout">Lock and log out</button></nav>
+<h2>Health and model</h2><pre id="health"></pre><h2>Event timeline</h2><p>Click a trace ID to inspect its stages. First-token and generation timings overlap.</p>
+<table><thead><tr><th>Trace</th><th>Subsystem</th><th>Event</th><th>Status</th><th>ms</th></tr></thead><tbody id="events"></tbody></table><pre id="detail"></pre>
+<h2>Inspectors</h2><form id="inspect"><label>Memory/RAG query <input id="query" maxlength="2000" required></label><button>Inspect evidence metadata</button></form><pre id="evidence"></pre>
+<form id="graph"><label>Task ID <input id="task" required></label><button>Inspect task graph</button></form><pre id="taskgraph"></pre>
+<h2>Scenario replay</h2><p>Only built-in synthetic scenarios are replayed, in isolated temporary data. Owner traces are never re-executed.</p><select id="scenario" aria-label="Scenario"></select><button id="replay">Replay selected scenario</button><pre id="replayed"></pre>
+<h2>Compute and model changes</h2><p>Benchmarks use synthetic data and temporarily reserve compute. A trial does not change the saved default until finalized.</p>
+<button id="hardware-refresh">Inspect hardware</button><button id="model-load">Load model</button><button id="model-unload">Unload model</button><pre id="hardware"></pre><pre id="compute"></pre><pre id="models"></pre>
+<form id="model-register"><label>Candidate profile JSON <textarea id="model-json" rows="7" required></textarea></label><button>Register candidate</button></form>
+<form id="model-benchmark"><label>Profile ID <input id="model-id" value="current" required></label><button>Benchmark profile</button></form><pre id="benchmark"></pre>
+<form id="model-promote"><label>Candidate benchmark ID <input id="benchmark-id" required></label><label><input id="reduced" type="checkbox">Accept declared capability reduction</label><button>Begin candidate trial</button></form>
+<button id="model-finalize">Finalize trial as default</button><button id="model-rollback">Roll back</button>
+</section></main></body></html>

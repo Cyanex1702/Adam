@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adam-runtime"
+version = "0.20.0"
+description = "Local-first, model-independent ADAM runtime"
+license = "LicenseRef-Community-Non-Commercial-1.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "httpx>=0.28,<1", "pydantic>=2.10,<3", "PyYAML>=6,<7", "pypdf>=6,<7", "qdrant-client>=1.19,<2", "onnxruntime>=1.30,<2", "tokenizers>=0.23,<1", "numpy>=2,<2.4", "cryptography>=50,<51", "portalocker>=3.2,<4", "psutil>=7.2,<8", "jsonschema>=4.26,<5", "Pillow>=12.3,<13", "winrt-Windows.Media.Ocr==3.2.1; sys_platform == 'win32'", "winrt-Windows.Graphics.Imaging==3.2.1; sys_platform == 'win32'", "winrt-Windows.Storage.Streams==3.2.1; sys_platform == 'win32'", "winrt-Windows.Globalization==3.2.1; sys_platform == 'win32'", "winrt-Windows.Foundation==3.2.1; sys_platform == 'win32'", "winrt-Windows.Foundation.Collections==3.2.1; sys_platform == 'win32'", "pywin32>=312; sys_platform == 'win32'"]
+
+[project.optional-dependencies]
+voice = ["faster-whisper==1.2.1", "kokoro-onnx==0.6.1", "av==16.1.0", "sherpa-onnx==1.13.8"]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "mypy>=1.15,<2", "types-PyYAML>=6", "types-jsonschema>=4.26"]
+
+[project.scripts]
+adam = "adam.cli:main"
+adam-eval = "adam.evals.runner:main"
+adam-maintenance = "adam.resilience.cli:main"
+adam-compute = "adam.compute.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.setuptools.package-data]
+"adam.identity" = ["default_pack/*.yaml"]
+"adam.observability" = ["web/*.html", "web/*.js", "web/*.css"]
+"adam.mesh" = ["web/*.html", "web/*.js", "web/*.css"]
+"adam.portfolio" = ["*.json"]
+"adam.training" = ["recipe.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["adam"]
+mypy_path = "backend"

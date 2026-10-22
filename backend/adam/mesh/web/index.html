@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#111827"><title>ADAM mobile</title><link rel="stylesheet" href="/style.css"><script type="module" src="/client.js"></script></head>
+<body><p id="updates" role="status"></p>
+<main><header><h1>ADAM</h1><p>Your PC, from your phone</p></header>
+<p id="notice" role="status">Connecting…</p>
+<section id="pairing"><h2>Pair this Android phone</h2><p>Start the listener on your PC, create a pairing code, then approve the matching fingerprint in the desktop app.</p>
+<form id="pair"><label>Device name<input id="label" maxlength="48" value="Android phone" required></label><label>Pairing code<input id="code" maxlength="24" autocomplete="off" spellcheck="false" required pattern="[a-f0-9]{24}"></label><button>Request pairing</button></form><p id="fingerprint"></p></section>
+<section id="workspace" hidden><div class="controls"><button id="refresh">Reconnect / sync</button><button id="new">New phone session</button><button id="lock">Clear screen</button></div>
+<label>Shared session<select id="sessions"><option value="">Choose a session</option></select></label><p id="primary"></p>
+<div class="controls"><button id="take">Use phone</button><button id="return">Return to PC</button></div>
+<ol id="history" aria-label="Conversation"></ol><details><summary>Working task state</summary><pre id="working"></pre></details>
+<form id="chat"><label>Your message<textarea id="text" maxlength="4000" required></textarea></label><button>Send</button></form>
+<div id="voice" hidden><button id="record">Record voice</button><button id="speak">Read last reply</button><button id="stop">Stop audio</button><p>Press Finish, review the transcript above, then Send. Voice commands never grant owner access.</p></div>
+<form id="search" hidden><label>Search PC tool-sandbox filenames<input id="query" maxlength="100" required></label><button>Search</button><pre id="files"></pre></form></section>
+<footer><p>Local network only · model answers may be wrong · no transcript cache</p><button id="repair">Forget phone key and pair again</button><p>Revoke the old device on your PC before pairing a new key.</p></footer></main></body></html>

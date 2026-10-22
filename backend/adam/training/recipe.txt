@@ -1,0 +1,104 @@
+"""Experimental LoRA/QLoRA recipe for a separate Colab/Kaggle GPU environment.
+
+Install torch, transformers, peft, accelerate and (QLoRA only) bitsandbytes in
+that separate environment. Record their exact versions in your experiment.
+Review dataset.jsonl yourself. This script does not upload files or activate an
+adapter in ADAM. Review model license/access before downloading its weights.
+Example: python train-adapter.py --dataset dataset.jsonl --sha256 EXPECTED_HASH
+         --model MODEL_ID --revision FULL_COMMIT_SHA --method qlora --output adapter
+"""
+import argparse
+import hashlib
+import importlib.metadata
+import json
+import os
+import re
+from pathlib import Path
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--dataset', required=True, type=Path)
+    parser.add_argument('--sha256', required=True)
+    parser.add_argument('--model', required=True)
+    parser.add_argument('--revision', required=True)
+    parser.add_argument('--method', choices=['lora', 'qlora'], default='qlora')
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    raw = args.dataset.read_bytes()
+    if len(raw) > 8_000_000 or hashlib.sha256(raw).hexdigest() != args.sha256:
+        parser.error('Dataset size or checksum failed')
+    if not re.fullmatch(r'[a-f0-9]{40}', args.revision) or args.output.exists():
+        parser.error('Pin a full model commit and choose a fresh output directory')
+    rows = [json.loads(line) for line in raw.decode('utf-8').splitlines() if line.strip()]
+    if not 20 <= len(rows) <= 1000:
+        parser.error('Need 20-1000 separately approved synthetic behavior examples')
+    for row in rows:
+        messages = row['messages']
+        if len(messages) != 2 or [m['role'] for m in messages] != ['user', 'assistant']:
+            parser.error('Invalid conversation schema')
+        if any(not isinstance(m['content'], str) or not 1 <= len(m['content']) <= 2000 for m in messages):
+            parser.error('Invalid example length')
+    os.environ['WANDB_DISABLED'] = 'true'
+    os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+    import torch
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainingArguments
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 7:
+        parser.error('Use a separate supported CUDA GPU (compute capability 7+); the M4000 is unsupported here')
+    tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision, trust_remote_code=False)
+    if not tokenizer.chat_template or tokenizer.eos_token_id is None:
+        parser.error('Choose a causal chat model with a native chat template and EOS token')
+    tokenizer.pad_token = tokenizer.eos_token
+    options = dict(revision=args.revision, trust_remote_code=False, device_map={'': 0})
+    if args.method == 'qlora':
+        options['quantization_config'] = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type='nf4', bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.float16)
+    else:
+        options['dtype'] = torch.float16
+    model = AutoModelForCausalLM.from_pretrained(args.model, **options)
+    if args.method == 'qlora':
+        model = prepare_model_for_kbit_training(model)
+    model = get_peft_model(model, LoraConfig(r=8, lora_alpha=16, target_modules='all-linear',
+                                            lora_dropout=0.05, bias='none', task_type='CAUSAL_LM'))
+    model.config.use_cache = False
+    # Fixed split avoids sharing exact duplicate prompts across train/holdout.
+    seen, encoded = set(), []
+    for row in rows:
+        fingerprint = hashlib.sha256(row['messages'][0]['content'].strip().casefold().encode()).hexdigest()
+        if fingerprint in seen:
+            parser.error('Duplicate prompts must be resolved before splitting')
+        seen.add(fingerprint)
+        ids = tokenizer.apply_chat_template(row['messages'], tokenize=True, add_generation_prompt=False)
+        prefix = tokenizer.apply_chat_template(row['messages'][:1], tokenize=True, add_generation_prompt=True)
+        if len(ids) > 512 or ids[:len(prefix)] != prefix or len(ids) <= len(prefix):
+            parser.error('Example exceeds 512 tokens or model template cannot safely mask user text')
+        encoded.append({'input_ids': ids, 'attention_mask': [1] * len(ids),
+                        'labels': [-100] * len(prefix) + ids[len(prefix):]})
+    def collate(batch):
+        width = max(len(item['input_ids']) for item in batch)
+        return {key: torch.tensor([item[key] + [pad] * (width-len(item[key])) for item in batch])
+                for key, pad in [('input_ids', tokenizer.pad_token_id), ('attention_mask', 0), ('labels', -100)]}
+    train, holdout = encoded[2:], encoded[:2]
+    training_args = TrainingArguments(
+        output_dir=str(args.output), per_device_train_batch_size=1, gradient_accumulation_steps=8,
+        num_train_epochs=1, max_steps=100, learning_rate=0.0001, fp16=True,
+        report_to='none', save_strategy='no', logging_steps=5, seed=42)
+    trainer = Trainer(model=model, args=training_args, train_dataset=train,
+                      eval_dataset=holdout, data_collator=collate)
+    trainer.train()
+    metrics = trainer.evaluate()
+    model.save_pretrained(args.output, safe_serialization=True)
+    tokenizer.save_pretrained(args.output)
+    receipt = {'status': 'EXPERIMENT_ONLY_NOT_PROMOTED', 'base_model': args.model,
+               'base_revision': args.revision, 'dataset_sha256': args.sha256,
+               'method': args.method, 'examples': len(rows), 'holdout_examples': 2,
+               'metrics': metrics, 'versions': {name: importlib.metadata.version(name)
+                for name in ['torch', 'transformers', 'peft', 'accelerate']},
+               'next': 'Evaluate base and adapter through the identical full ADAM real-model suite; then human review.'}
+    (args.output/'experiment.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')
+
+
+if __name__ == '__main__':
+    main()

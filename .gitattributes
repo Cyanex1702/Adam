@@ -1,0 +1,13 @@
+* text=auto
+docs/examples/wave3/*.pdf binary
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.rs text eol=lf
+*.tsx text eol=lf
+*.ts text eol=lf
+*.bat text eol=crlf
+LICENSE text eol=lf whitespace=-blank-at-eol
+docs/operations/evidence/** export-ignore

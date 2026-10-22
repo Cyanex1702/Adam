@@ -1,0 +1,23 @@
+# Compact local starter selected for the user's i5/16 GB/Quadro M4000 machine.
+[features]
+voice = true
+speaker_id = true
+mobile_mesh = true
+
+[voice]
+tts_engine = "windows"
+cpu_threads = 2
+retain_audio = false
+
+[model]
+provider = "llama_cpp"
+base_url = "http://127.0.0.1:8080"
+model_id = "qwen3-4b-instruct"
+display_name = "Qwen3-4B-Instruct-2507"
+quantization = "Q4_K_M"
+languages = ["en", "ur-Latn"]
+context_limit = 4096
+max_tokens = 768
+timeout_seconds = 120
+temperature = 0.7
+seed = 42
