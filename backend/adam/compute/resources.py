@@ -77,6 +77,18 @@ class ManagedProvider(ModelProvider):
         self.delegate = provider
         self.settings = settings
         self.config = settings.compute
+        from adam.resilience.archive import scoped
+
+        preference = scoped(settings.data_dir, "config/performance.json")
+        if preference.is_file():
+            import json
+
+            if preference.stat().st_size > 1024:
+                raise ComputeError("CONFIG.PERFORMANCE_INVALID")
+            saved = json.loads(preference.read_bytes())
+            if set(saved) != {"mode"} or saved["mode"] not in {"eco", "priority"}:
+                raise ComputeError("CONFIG.PERFORMANCE_INVALID")
+            self.config.mode = saved["mode"]
         self.scheduler = PriorityScheduler(self.config)
         self.state = "AVAILABLE"
         self.detached = False
@@ -90,6 +102,9 @@ class ManagedProvider(ModelProvider):
         self.gpu_probe: Callable[[], list[dict[str, Any]]] = gpus
         self.gpu_required = self.config.gpu_admission
         self.controller: Any = None
+        self.last_health: ModelHealth | None = None
+        self.routing_lock = asyncio.Lock()
+        self.routing_waiters = 0
 
     def get_capabilities(self) -> ModelCard:
         return self.delegate.get_capabilities()
@@ -104,10 +119,17 @@ class ManagedProvider(ModelProvider):
         )
         if available is not None and available < self.config.min_free_ram_mib * 1024**2:
             reasons.append("RESOURCE.RAM_PRESSURE")
-        if percent is not None and percent >= self.config.ram_pressure_percent:
+        pressure_limit = (
+            min(97.0, self.config.ram_pressure_percent + 3)
+            if self.config.mode == "priority"
+            else self.config.ram_pressure_percent
+        )
+        if percent is not None and percent >= pressure_limit:
             reasons.append("RESOURCE.RAM_PRESSURE")
         if disk is not None and disk < self.config.min_free_disk_mib * 1024**2:
             reasons.append("RESOURCE.STORAGE_PRESSURE")
+        if available is None or percent is None or disk is None:
+            reasons.append("RESOURCE.TELEMETRY_UNAVAILABLE")
         if self.gpu_required:
             devices = self.gpu_probe()
             sample["gpus"] = devices
@@ -121,10 +143,20 @@ class ManagedProvider(ModelProvider):
                 reasons.append("RESOURCE.GPU_TELEMETRY_UNAVAILABLE")
             elif max(margins) < self.config.min_free_vram_mib * 1024**2:
                 reasons.append("RESOURCE.VRAM_PRESSURE")
-        if self.error:
+        if self.error and self.error.startswith("RESOURCE."):
             reasons.append(self.error)
         mode = "DEGRADED" if reasons else "NORMAL" if available is not None else "UNKNOWN"
-        result = {**sample, "mode": mode, "reasons": sorted(set(reasons))}
+        result = {
+            **sample,
+            "mode": mode,
+            "reasons": sorted(set(reasons)),
+            "performance_mode": self.config.mode,
+            "limits": {
+                "min_free_ram_mib": self.config.min_free_ram_mib,
+                "ram_pressure_percent": pressure_limit,
+                "min_free_disk_mib": self.config.min_free_disk_mib,
+            },
+        }
         self.samples.append(result)
         return result
 
@@ -146,9 +178,40 @@ class ManagedProvider(ModelProvider):
             self.retry_at = time.monotonic() + self.config.cooldown_seconds
 
     @asynccontextmanager
-    async def turn(self) -> AsyncIterator[None]:
+    async def turn(self, text: str = "") -> AsyncIterator[None]:
+        if not self.controller or not self.controller.library.state.automatic:
+            async with self._active_turn():
+                yield
+            return
+        if self.routing_waiters >= self.config.queue_limit:
+            raise ComputeError("RESOURCE.QUEUE_FULL")
+        self.routing_waiters += 1
+        try:
+            async with self.routing_lock:
+                if text:
+                    await self.controller.library.route(text)
+                async with self._active_turn():
+                    yield
+        finally:
+            self.routing_waiters -= 1
+
+    @asynccontextmanager
+    async def _active_turn(self) -> AsyncIterator[None]:
         if self.operation_active:
             raise ComputeError("MODEL.LIFECYCLE_BUSY")
+        if self.error == "RESOURCE.PRESSURE" and time.monotonic() >= self.retry_at:
+            from adam.compute.owned import OwnedLlamaProvider
+
+            if isinstance(self.delegate, OwnedLlamaProvider):
+                self.error = None
+                if self.observe()["mode"] == "DEGRADED":
+                    self.error = "RESOURCE.PRESSURE"
+                else:
+                    try:
+                        await self.load()
+                    except ComputeError as error:
+                        self.error, self.state = error.code, "ERROR"
+                        self.retry_at = time.monotonic() + self.config.cooldown_seconds
         self.turns += 1
         try:
             yield
@@ -166,13 +229,22 @@ class ManagedProvider(ModelProvider):
             self.operation_active = False
 
     async def health_check(self) -> ModelHealth:
+        # Admission failures are transient, not a permanent provider-error latch.
+        if self.error == "RESOURCE.PRESSURE":
+            self.error = None
+            if self.observe()["mode"] == "DEGRADED":
+                self.error = "RESOURCE.PRESSURE"
         if self.error or self.detached:
             return ModelHealth(
                 status="DEGRADED",
                 model_id=self.get_capabilities().model_id,
                 reason=self.error or "MODEL.NOT_LOADED",
             )
-        return await self.delegate.health_check()
+        delegate = self.delegate
+        health = await delegate.health_check()
+        if delegate is self.delegate and not self.operation_active:
+            self.last_health = health
+        return health
 
     async def count_tokens(self, messages: list[Message]) -> int:
         return await self.delegate.count_tokens(messages)
@@ -192,18 +264,52 @@ class ManagedProvider(ModelProvider):
                 health = await self.delegate.load()
             except (MemoryError, OSError, ValueError) as error:
                 self.error = (
-                    error.code if isinstance(error, ComputeError) else "RESOURCE.LOAD_FAILED"
+                    error.code
+                    if isinstance(error, ComputeError)
+                    else (
+                        "RESOURCE.OOM" if isinstance(error, MemoryError) else "RESOURCE.LOAD_FAILED"
+                    )
                 )
                 self.state = "ERROR"
                 self.retry_at = time.monotonic() + self.config.cooldown_seconds
                 raise ComputeError(self.error) from None
+            self.last_health = health
             if health.status != "HEALTHY":
-                self.error, self.state = "MODEL.UNAVAILABLE", "ERROR"
+                self.error, self.state = health.reason or "MODEL.UNAVAILABLE", "ERROR"
                 self.retry_at = time.monotonic() + self.config.cooldown_seconds
             else:
                 self.detached, self.error, self.failures = False, None, 0
                 self.state = "LOADED"
             return health
+
+    async def set_mode(self, mode: Literal["eco", "priority"]) -> dict[str, object]:
+        from adam.compute.catalog import publish
+        from adam.compute.owned import OwnedLlamaProvider
+
+        if self.controller is None:
+            raise ComputeError("MODEL.CONTROLLER_UNAVAILABLE")
+        with self.controller.disk_lock():
+            async with self.operation():
+                reload = (
+                    isinstance(self.delegate, OwnedLlamaProvider)
+                    and self.delegate.process is not None
+                )
+                if isinstance(self.delegate, OwnedLlamaProvider):
+                    await self.delegate.unload()
+                    self.detached = True
+                publish(self.settings.data_dir, "config/performance.json", {"mode": mode})
+                self.config.mode = mode
+                if isinstance(self.delegate, OwnedLlamaProvider):
+                    self.delegate.mode = mode
+            if reload:
+                await self.load()
+        return {
+            "mode": mode,
+            "model_reloaded": reload,
+            "scope": (
+                "ADAM-owned inference process only; other apps are never closed or reprioritized."
+            ),
+        }
 
     async def unload(self) -> None:
         async with self.operation():
@@ -273,7 +379,12 @@ class ManagedProvider(ModelProvider):
                 ErrorEnvelope(
                     code=error.code,
                     trace_id=trace_id,
-                    message="Compute unavailable. Inspect resources and reload when ready.",
-                    retryable=False,
+                    message="The resource or model check failed: "
+                    + error.code
+                    + (
+                        ". Open Diagnostics or use /diagnostics for measured readings and "
+                        "recovery steps."
+                    ),
+                    retryable=error.code in {"RESOURCE.PRESSURE", "RESOURCE.BACKGROUND_PAUSED"},
                 )
             ) from None

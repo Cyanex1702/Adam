@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import * as bridge from "./bridge";
 import { Avatar } from "./Avatar";
+import { ChatText } from "./ChatText";
 import { OperationsBadge } from "./OperationsBadge";
 import { InternetPanel } from "./InternetPanel";
 import { ComputerPanel } from "./ComputerPanel";
@@ -8,6 +9,8 @@ import { DistributionPanel } from "./DistributionPanel";
 import { PersonalPanel } from "./PersonalPanel";
 import { TrainingPanel } from "./TrainingPanel";
 import { PortfolioPanel } from "./PortfolioPanel";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { ModelLibraryPanel } from "./ModelLibraryPanel";
 import { VisionPanel } from "./VisionPanel";
 import { OperationsPanel } from "./OperationsPanel";
 import { MeshPanel } from "./MeshPanel";
@@ -20,7 +23,7 @@ import {
   type Preferences,
 } from "./state";
 
-type View = "chat" | "memory" | "internet" | "vision" | "computer" | "distribution" | "personal" | "training" | "portfolio" | "operations" | "settings" | "developer";
+type View = "chat" | "memory" | "internet" | "vision" | "computer" | "distribution" | "personal" | "training" | "portfolio" | "operations" | "settings" | "developer" | "diagnostics" | "models";
 type Auth = { mode: "owner" | "guest" | "demo"; developer: boolean };
 type Session = {
   session_id: string;
@@ -41,6 +44,7 @@ type Service = {
   model_status: string;
   model_error: string | null;
   release: string;
+  issues?: string[];
 };
 const preferenceKey = "adam.desktop.preferences.v1";
 function Brand() {
@@ -94,7 +98,16 @@ export function App() {
     [auth, setAuth] = useState<Auth | null>(null),
     [service, setService] = useState<Service | null>(null),
     [loading, setLoading] = useState(true);
+  const [background, setBackground] = useState(false), [trayAvailable, setTrayAvailable] = useState(false);
+  useEffect(() => {
+    void bridge.backgroundStatus().then(value => {
+      setBackground(value.enabled); setTrayAvailable(value.tray_available);
+    }).catch(() => {});
+    const hidden = bridge.onHidden(() => voice.current?.reset());
+    return () => { void hidden.then(remove => remove()); };
+  }, []);
   const [notice, setNotice] = useState(""),
+    [lastServiceCode, setLastServiceCode] = useState<string | null>(null),
     [password, setPassword] = useState(""),
     [confirm, setConfirm] = useState(""),
     [authBusy, setAuthBusy] = useState(false);
@@ -103,6 +116,7 @@ export function App() {
     [history, setHistory] = useState<Turn[]>([]),
     [pending, setPending] = useState<Message[]>([]);
   const [draft, setDraft] = useState(""),
+    [careful, setCareful] = useState(false),
     [audioEnergy, setAudioEnergy] = useState(0),
     [busy, setBusy] = useState(false),
     [avatarState, setAvatarState] = useState<AvatarState>("OFFLINE"),
@@ -128,6 +142,7 @@ export function App() {
     composer = useRef<HTMLTextAreaElement>(null),
     booted = useRef(false),
     busyRef = useRef(false);
+  const connectionBusy = useRef(false), pollEnabled = useRef(false), pollFailures = useRef(0), automaticReconnects = useRef(0);
   busyRef.current = busy;
   function issue(error: unknown) {
     setNotice(friendlyError(error));
@@ -170,6 +185,9 @@ export function App() {
     }
   }
   async function boot(restart = false) {
+    if (connectionBusy.current) return;
+    connectionBusy.current = true;
+    pollEnabled.current = false;
     setLoading(true);
     clearPrivate();
     setAuth(null);
@@ -178,11 +196,15 @@ export function App() {
     try {
       await bridge.start(restart);
       const status = await bridge.api<Service>("/desktop/status");
+      pollEnabled.current = true;
       setService(status);
+      setLastServiceCode(null);
       setAvatarState(status.model_status === "HEALTHY" ? "IDLE" : "OFFLINE");
     } catch (error) {
+      setLastServiceCode(typeof error === "string" ? error : "DESKTOP.START_FAILED");
       issue(error);
     } finally {
+      connectionBusy.current = false;
       setLoading(false);
     }
   }
@@ -192,10 +214,12 @@ export function App() {
       void boot();
     }
     const timer = setInterval(() => {
-      if (booted.current)
+      if (booted.current && pollEnabled.current && !connectionBusy.current) {
+        connectionBusy.current = true;
         bridge
           .api<Service>("/desktop/status")
           .then((status) => {
+            pollFailures.current = 0;
             setService(status);
             if (!busyRef.current)
               setAvatarState((old) =>
@@ -205,13 +229,22 @@ export function App() {
                 }),
               );
           })
-          .catch(() => {
+          .catch(async (error) => {
+            if (++pollFailures.current < 2) return;
+            pollEnabled.current = false;
             setService(null);
             clearPrivate();
             setAuth(null);
             setAvatarState("OFFLINE");
-            setNotice(friendlyError("DESKTOP.CONNECTION_LOST"));
-          });
+            setView("diagnostics");
+            setNotice(friendlyError(error));
+            setLastServiceCode(typeof error === "string" ? error : "DESKTOP.CONNECTION_LOST");
+            if (automaticReconnects.current++ === 0) {
+              try { await bridge.start(false); setService(await bridge.api<Service>("/desktop/status")); pollEnabled.current = true; }
+              catch { /* One bounded reconnect; diagnostics remain accessible. */ }
+            }
+          }).finally(() => { connectionBusy.current = false; });
+      }
     }, 5000);
     return () => clearInterval(timer);
   }, []);
@@ -372,7 +405,7 @@ export function App() {
     try {
       const result = await bridge.send(
         id,
-        { text, session_id: sessionId },
+        { text, session_id: sessionId, careful },
         (event) => {
           if (expected !== epoch.current || requestId.current !== id) return;
           if (event.session_id) {
@@ -381,6 +414,10 @@ export function App() {
             setSessionId(event.session_id);
           }
           setAvatarState((old) => visualState(old, { kind: "backend", event }));
+          if (event.event_type === "agent.started" && event.payload.model)
+            setIdentity((old: any) => old ? { ...old, model: event.payload.model } : old);
+          if (event.event_type === "agent.started" && event.payload.model_selection?.switched)
+            setNotice(`Using ${event.payload.model?.display_name ?? "an approved local model"} for this task. Your conversation keeps its context.`);
           if (event.event_type === "agent.token") {
             voice.current?.append(String(event.payload.text ?? ""));
             setPending((old) => [
@@ -517,7 +554,7 @@ export function App() {
       void loadDeveloper().catch(issue);
   }
   const title =
-    view === "chat"
+    view === "models" ? "Local model library" : view === "diagnostics" ? "Diagnostics & performance" : view === "chat"
       ? "Conversation"
       : view === "memory"
         ? "Saved memory"
@@ -581,19 +618,21 @@ export function App() {
             <Icon kind="memory" />
             Reminders{auth?.mode === "owner" && <OperationsBadge />}
           </button>
+          <button className={view === "personal" ? "selected" : ""} onClick={() => openView("personal")} disabled={!auth || auth.mode === "guest" || busy} title="Relationships, timelines and goals linked to your memories">Personal intelligence</button>
+          <button className={view === "distribution" ? "selected" : ""} onClick={() => openView("distribution")} disabled={auth?.mode !== "owner" || busy} title="Install a model, manage backups and restore your workspace">Setup and recovery</button>
+          <details className="advanced-navigation"><summary>More tools &amp; experiments</summary>
           <button className={view === "internet" ? "selected" : ""}
             onClick={() => openView("internet")} disabled={auth?.mode !== "owner" || busy}>
             <Icon kind="chat" /> Internet
           </button>
           <button className={view === "computer" ? "selected" : ""} onClick={() => openView("computer")} disabled={auth?.mode !== "owner" || busy}>Computer actions</button>
-          <button className={view === "distribution" ? "selected" : ""} onClick={() => openView("distribution")} disabled={auth?.mode !== "owner" || busy}>Setup and recovery</button>
-          <button className={view === "personal" ? "selected" : ""} onClick={() => openView("personal")} disabled={!auth || auth.mode === "guest" || busy}>Personal intelligence</button>
           <button className={view === "training" ? "selected" : ""} onClick={() => openView("training")} disabled={auth?.mode !== "owner" || busy}>Behavior experiment</button>
           <button className={view === "portfolio" ? "selected" : ""} onClick={() => openView("portfolio")} disabled={!auth || busy}>Demo and benchmarks</button>
           <button className={view === "vision" ? "selected" : ""}
             onClick={() => openView("vision")} disabled={auth?.mode !== "owner" || busy}>
             <Icon kind="chat" /> Vision
           </button>
+          </details>
         </nav>
         <div className="recent-label">
           RECENT CONVERSATIONS <span>{sessions.length || "—"}</span>
@@ -629,6 +668,10 @@ export function App() {
           )}
         </div>
         <nav className="bottom-nav" aria-label="Application">
+          <button className={view === "models" ? "selected" : ""} onClick={() => openView("models")} disabled={auth?.mode !== "owner" || busy} title="Discover, approve and switch local GGUF models">Model library</button>
+          <button className={view === "diagnostics" ? "selected" : ""} onClick={() => openView("diagnostics")} disabled={busy} title="Check resources, troubleshoot startup, and choose Eco or Priority mode">
+            <Icon kind="settings" /> Diagnostics
+          </button>
           <button
             className={view === "settings" ? "selected" : ""}
             onClick={() => openView("settings")}
@@ -694,6 +737,7 @@ export function App() {
                 : service.model_status === "HEALTHY"
                   ? "Local model ready"
                   : "Model unavailable"}
+            {background && " · background enabled"}
           </div>
         </header>
         {notice && (
@@ -706,7 +750,11 @@ export function App() {
         )}
         <div className="content-grid">
           <main>
-            {!auth ? (
+            {view === "diagnostics" ? (
+              <DiagnosticsPanel owner={auth?.mode === "owner"} reconnect={() => void boot(true)} back={() => setView("chat")} serviceError={lastServiceCode} issue={issue} />
+            ) : view === "models" && auth?.mode === "owner" ? (
+              <ModelLibraryPanel issue={issue} />
+            ) : !auth ? (
               <section className="unlock">
                 <span className="section-number">01 / LOCAL BY DESIGN</span>
                 <h2>
@@ -780,6 +828,12 @@ export function App() {
                   </>
                 )}
                 {!loading && (
+                  <button className="secondary" onClick={() => setView("diagnostics")}>
+                    Open diagnostics &amp; recovery help
+                  </button>
+                )}
+                {service?.issues?.map((code) => <p className="diagnostic-code" key={code}><code>{code}</code> — {friendlyError(code)}</p>)}
+                {!loading && (
                   <button
                     className="text-button"
                     onClick={() => void boot(true)}
@@ -810,6 +864,7 @@ export function App() {
                         Ask a question, work through an idea, or keep
                         <br className="wide-only" /> something useful for later.
                       </p>
+                      <p className="getting-started">New here? Chat asks your local model. Saved memory stores things you explicitly want to retain. Diagnostics explains loading and resource problems. Other tools show a review before supported actions.</p>
                       <div className="suggestions">
                         {[
                           [
@@ -876,7 +931,7 @@ export function App() {
                               <span>{message.note}</span>
                             </div>
                             <div className="message-text">
-                              {message.text || (
+                              {(message.role === "assistant" && message.text ? <ChatText text={message.text} /> : message.text) || (
                                 <span className="working-dots">
                                   Preparing a response…
                                 </span>
@@ -889,6 +944,7 @@ export function App() {
                   )}
                 </div>
                 <form className="composer" onSubmit={submit}>
+                  {busy && !pending.at(-1)?.text && <p className="preparing-answer" role="status">{careful ? "Checking the stated facts, then preparing an answer…" : "Preparing your local answer…"} Model loading can take a moment. You can stop at any time.</p>}
                   <label className="sr-only" htmlFor="message">
                     Message ADAM
                   </label>
@@ -914,6 +970,9 @@ export function App() {
                     }}
                   />
                   <div className="composer-bottom">
+                    <label className="careful-toggle" title="Experimental: uses two bounded model passes to list premises, then answer. Slower; it can still repeat the same mistake.">
+                      <input type="checkbox" checked={careful} onChange={event => setCareful(event.target.checked)} disabled={busy} /> Careful answer · experimental
+                    </label>
                     <span>
                       Text & local voice <i /> Shift + Enter for a new line
                     </span>
@@ -1046,6 +1105,19 @@ export function App() {
                 </p>
                 <div className="setting-row">
                   <div>
+                    <strong>Keep ADAM running in the background</strong>
+                    <p>Off by default for each launch. When enabled, closing the window keeps the model and scheduled work running. Microphone capture stops while hidden. Use the ADAM tray icon to reopen or quit and free RAM.</p>
+                  </div>
+                  <input type="checkbox" aria-label="Keep ADAM running in the background"
+                    disabled={!trayAvailable || auth.mode !== "owner"} checked={background}
+                    onChange={event => {
+                      const enabled = event.target.checked;
+                      void bridge.backgroundMode(enabled).then(value => setBackground(value.enabled)).catch(issue);
+                    }} />
+                </div>
+                {!trayAvailable && <p className="fine-print">A tray indicator is unavailable. Closing the window quits ADAM.</p>}
+                <div className="setting-row">
+                  <div>
                     <strong>Abstract avatar</strong>
                     <p>Show the current operational state.</p>
                   </div>
@@ -1101,6 +1173,7 @@ export function App() {
                   </dl>
                 </div>
                 <div className="settings-actions">
+                  <button className="secondary" onClick={() => { voice.current?.reset(); void bridge.quit().catch(issue); }}>Quit ADAM and stop owned model</button>
                   <button
                     className="secondary"
                     onClick={() => void demo()}
@@ -1212,7 +1285,7 @@ export function App() {
               </div>
             </section>
             <div className="right-footer">
-              <span>ADAM / 0.11</span>
+              <span>ADAM / {service?.release ?? "local"}</span>
               <span>LOCAL VOICE WORKSPACE</span>
             </div>
           </aside>

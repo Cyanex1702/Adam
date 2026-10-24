@@ -58,4 +58,5 @@ The existing encrypted backup format does **not** include the new operations
 store. For a full manual copy, close ADAM first and preserve the whole data folder;
 do not copy live SQLite/WAL files independently or overwrite another private profile.
 
-See [Gate 13](gate-13.md) for real desktop/Android validation.
+Validate notification delivery, quiet hours and restart persistence on the desktop
+and any paired Android device.

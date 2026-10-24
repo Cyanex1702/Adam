@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adam-runtime"
-version = "0.20.0"
+version = "0.20.2"
 description = "Local-first, model-independent ADAM runtime"
 license = "LicenseRef-Community-Non-Commercial-1.0"
 license-files = ["LICENSE"]

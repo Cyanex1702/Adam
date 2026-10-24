@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import socket
+import sqlite3
 import sys
 import threading
 import time
@@ -20,8 +21,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from adam import APP_VERSION
 from adam.api.app import create_app
 from adam.compute.catalog import Catalog, ModelProfile, publish
-from adam.compute.hardware import assets_root, gpus
-from adam.core.config import Settings, load_settings
+from adam.compute.hardware import assets_root
+from adam.core.config import Settings, load_settings, resolve_catalog_settings
 from adam.core.runtime import ChatRequest
 from adam.evals.suite import ProbeProvider
 from adam.resilience.archive import scoped
@@ -56,7 +57,7 @@ def adopt_initial_runtime(settings: Settings) -> None:
                             model=settings.model,
                             managed=True,
                             model_file=identifier + ".gguf",
-                            device="vulkan" if gpus() else "cpu",
+                            device="cpu",
                         )
                     }
                 ),
@@ -92,16 +93,43 @@ class DesktopBoundary:
         if request.url.path == "/desktop/status" and request.method == "GET":
             app = self.ready
             recovery = not hasattr(app.state, "auth")
-            health = await app.state.models.manager.health_check() if not recovery else None
+            manager = app.state.models.manager if not recovery else None
+            # Connection polling must never wait on inference-server networking.
+            healthy = (
+                manager is not None
+                and not manager.error
+                and not manager.detached
+                and manager.state in {"LOADED", "IDLE", "ACTIVE"}
+                and (manager.last_health is None or manager.last_health.status == "HEALTHY")
+            )
             await JSONResponse(
                 {
                     "release": APP_VERSION,
                     "configured": app.state.auth.configured() if not recovery else False,
                     "recovery": recovery,
-                    "model_status": health.status if health else "UNAVAILABLE",
-                    "model_error": health.reason if health else "RECOVERY.READ_ONLY",
+                    "model_status": "HEALTHY" if healthy else "UNAVAILABLE",
+                    "model_error": (
+                        manager.error
+                        or (manager.last_health.reason if manager.last_health else None)
+                    )
+                    if manager
+                    else "RECOVERY.READ_ONLY",
+                    "model_status_source": "lifecycle",
+                    "issues": getattr(app.state, "recovery_issues", []),
                 }
             )(scope, receive, send)
+            return
+        if request.url.path == "/desktop/diagnostics" and request.method == "GET":
+            from adam.compute.diagnostics import report
+
+            app = self.ready
+            value = await asyncio.to_thread(
+                report,
+                app.state.desktop_settings,
+                app.state.models.manager if hasattr(app.state, "models") else None,
+                getattr(app.state, "recovery_issues", []),
+            )
+            await JSONResponse(value)(scope, receive, send)
             return
         if request.url.path == "/desktop/setup":
             if request.method != "POST" or not hasattr(self.ready.state, "auth"):
@@ -156,9 +184,11 @@ class DesktopBoundary:
 
 
 def desktop_app(settings: Settings, nonce: str, *, probe: bool = False) -> DesktopBoundary:
+    settings = resolve_catalog_settings(settings)
     if not probe and inspect(settings)["mode"] == "HEALTHY":
         adopt_initial_runtime(settings)
     app = create_app(settings, ProbeProvider() if probe else None)
+    app.state.desktop_settings = settings
     if hasattr(app.state, "auth"):
         from adam.voice.api import install_voice
 
@@ -206,14 +236,21 @@ def desktop_app(settings: Settings, nonce: str, *, probe: bool = False) -> Deskt
     return DesktopBoundary(app, nonce, app)
 
 
-def main() -> None:
+def _main() -> None:
     parser = argparse.ArgumentParser(description="Owned local ADAM desktop service")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--probe", action="store_true", help="Explicit synthetic QA transport")
     args = parser.parse_args()
-    settings = load_settings(None if os.environ.get("ADAM_CONFIG") else args.config)
-    if args.data_dir:
+    configuration_error = False
+    try:
+        settings = load_settings(None if os.environ.get("ADAM_CONFIG") else args.config)
+    except (ValueError, OSError):
+        from adam.core.config import resolve_data_dir
+
+        settings = Settings(data_dir=args.data_dir or resolve_data_dir())
+        configuration_error = True
+    if args.data_dir and not configuration_error:
         # Explicit local OS-trusted testing option; normal desktop IPC has no path input.
         settings = load_settings(args.config, env={"ADAM_DATA_DIR": str(args.data_dir)})
     restored = os.environ.get("ADAM_RESTORED_CONFIG")
@@ -226,7 +263,14 @@ def main() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     lease.acquire()
     nonce = secrets.token_urlsafe(48)
-    app = desktop_app(settings, nonce, probe=args.probe)
+    if configuration_error:
+        from adam.resilience.recovery import recovery_app
+
+        ready = recovery_app(settings, ["CONFIG.INVALID"])
+        ready.state.desktop_settings = settings
+        app = DesktopBoundary(ready, nonce, ready)
+    else:
+        app = desktop_app(settings, nonce, probe=args.probe)
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(128)
@@ -261,6 +305,24 @@ def main() -> None:
         worker.join(timeout=20)
         listener.close()
         lease.release()
+
+
+def main() -> None:
+    try:
+        _main()
+    except portalocker.exceptions.LockException:
+        print(json.dumps({"event": "failed", "error": "DESKTOP.PROFILE_IN_USE"}), flush=True)
+        raise SystemExit(1) from None
+    except (ValueError, OSError, sqlite3.Error) as error:
+        code = getattr(error, "code", "DESKTOP.START_FAILED")
+        if (
+            not isinstance(code, str)
+            or len(code) > 100
+            or not all(c.isupper() or c.isdigit() or c in "._" for c in code)
+        ):
+            code = "DESKTOP.START_FAILED"
+        print(json.dumps({"event": "failed", "error": code}), flush=True)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

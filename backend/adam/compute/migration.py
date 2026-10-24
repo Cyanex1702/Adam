@@ -156,7 +156,9 @@ class ModelController:
         ] = throughput
         self.machine: Callable[[], str] = lambda: machine_digest(self.settings)
         self.factory: Callable[[ModelProfile], ModelProvider] = lambda item: (
-            OwnedLlamaProvider(item) if item.managed else external(item.model)
+            OwnedLlamaProvider(item, mode=manager.config.mode)
+            if item.managed
+            else external(item.model)
         )
         self.initial_provider = manager.delegate
         self.disk_revision = (
@@ -167,13 +169,15 @@ class ModelController:
             manager.delegate = self.factory(self.catalog.profiles[self.active_id])
             manager.detached = True
         self.manager.gpu_required = self.catalog.profiles[self.active_id].device == "vulkan"
+        from adam.compute.library import ModelLibrary
+
+        self.library = ModelLibrary(self)
 
     async def startup(self) -> None:
-        if self.catalog.profiles[self.active_id].managed:
-            try:
-                await self.manager.load()
-            except ComputeError as error:
-                self.manager.state, self.manager.error = "ERROR", error.code
+        try:
+            await self.manager.load()
+        except ComputeError as error:
+            self.manager.state, self.manager.error = "ERROR", error.code
 
     @contextmanager
     def disk_lock(self) -> Iterator[None]:

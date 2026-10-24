@@ -26,6 +26,7 @@ class ModelProfile(Contract):
         default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,140}\.gguf$"
     )
     device: Literal["cpu", "vulkan"] = "cpu"
+    source_path: str | None = Field(default=None, max_length=1024)
 
     @model_validator(mode="after")
     def valid(self) -> "ModelProfile":
@@ -33,6 +34,17 @@ class ModelProfile(Contract):
             raise ValueError("MODEL.MANAGED_CONTEXT_LIMIT")
         if self.managed and not self.model_file:
             raise ValueError("MODEL.ARTIFACT_REQUIRED")
+        if self.source_path:
+            path = Path(self.source_path)
+            if (
+                not self.managed
+                or not path.is_absolute()
+                or path.suffix.lower() != ".gguf"
+                or ".." in path.parts
+                or str(path).startswith(("\\\\", "//"))
+                or any(ord(c) < 32 for c in str(path))
+            ):
+                raise ValueError("MODEL.LOCAL_PATH_INVALID")
         if contains_secret(self.model_dump_json()):
             raise ValueError("MODEL.PROFILE_CREDENTIAL_DENIED")
         return self

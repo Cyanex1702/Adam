@@ -145,7 +145,7 @@ export const VoicePanel = forwardRef<VoiceHandle, Props>(
         });
       const hidden = () => {
         if (document.hidden) {
-          stopMicrophone();
+          reset();
           player.current.stop();
         }
       };
@@ -303,6 +303,7 @@ export const VoicePanel = forwardRef<VoiceHandle, Props>(
     }
     async function startMicrophone() {
       if (
+        document.hidden ||
         recording ||
         starting.current ||
         !status?.stt_ready ||

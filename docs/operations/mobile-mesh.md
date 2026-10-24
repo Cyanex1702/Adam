@@ -109,8 +109,8 @@ replaces the registry or regenerates a damaged identity.
 
 Device/TLS keys are local account-bound and excluded from portable backups.
 Re-pair after relocating/restoring the authoritative core. The installer upgrades
-the app without replacing existing mesh data. Human Android/LAN testing is tracked
-in [Gate 12](gate-12.md); automated loopback/TLS tests cannot pass that gate.
+the app without replacing existing mesh data. Test pairing, session handoff and
+reconnection on a real Android device and LAN; loopback/TLS tests alone are insufficient.
 
 Protocol references: [WebCrypto ECDSA signing](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign),
 [CryptoKey persistence](https://developer.mozilla.org/en-US/docs/Web/API/CryptoKey),

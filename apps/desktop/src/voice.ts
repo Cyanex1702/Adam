@@ -203,13 +203,15 @@ export class SpeechPlayer {
 }
 
 export class Microphone {
+  private generation = 0;
   private context: AudioContext | null = null;
   private stream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   async start(onFrame: (samples: Float32Array) => void) {
+    const expected = ++this.generation;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           echoCancellation: true,
@@ -218,10 +220,16 @@ export class Microphone {
         },
         video: false,
       });
+      if (expected !== this.generation) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      this.stream = stream;
       this.context = new AudioContext({ sampleRate: 16000 });
       if (this.context.sampleRate !== 16000)
         throw "VOICE.SAMPLE_RATE_UNSUPPORTED";
       await this.context.resume();
+      if (expected !== this.generation) return;
       this.source = this.context.createMediaStreamSource(this.stream);
       // Fixed 128 ms PCM frames. No encoder downloads, worklet blobs, or disk audio.
       this.processor = this.context.createScriptProcessor(2048, 1, 1);
@@ -235,6 +243,7 @@ export class Microphone {
     }
   }
   stop() {
+    this.generation++;
     if (this.processor) {
       this.processor.onaudioprocess = null;
       this.processor.disconnect();

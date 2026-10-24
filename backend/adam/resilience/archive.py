@@ -41,6 +41,31 @@ def readonly(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)
 
 
+def check_schema(
+    db: sqlite3.Connection,
+    migrations: tuple[tuple[int, tuple[str, ...]], ...],
+    applied: dict[int, str],
+) -> None:
+    """Compare with the recorded prefix, without migrating the original database."""
+    with closing(sqlite3.connect(":memory:")) as expected:
+        for version, statements in migrations:
+            if version not in applied:
+                break
+            for statement in statements:
+                expected.execute(statement)
+        tables = expected.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        for (table,) in tables:
+            # Names come exclusively from the application's static migration SQL.
+            quoted = '"' + table.replace('"', '""') + '"'
+            if (
+                db.execute(f"PRAGMA table_info({quoted})").fetchall()
+                != expected.execute(f"PRAGMA table_info({quoted})").fetchall()
+            ):
+                raise BackupError("STORAGE.SCHEMA_MISMATCH")
+
+
 def check_db(db: sqlite3.Connection, name: str) -> int:
     if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
         raise BackupError("STORAGE.INTEGRITY_FAILED")
@@ -72,6 +97,7 @@ def check_db(db: sqlite3.Connection, name: str) -> int:
     versions = [version for version, _ in migrations]
     if not applied or applied != {v: expected[v] for v in versions[: len(applied)]}:
         raise BackupError("STORAGE.UNSUPPORTED_SCHEMA")
+    check_schema(db, migrations, applied)
     if name == "runtime.sqlite3":
         from adam.core.working import WorkingState
         from adam.knowledge.contracts import SourceRecord
@@ -79,12 +105,14 @@ def check_db(db: sqlite3.Connection, name: str) -> int:
         from adam.memory.service import MemoryRecord
 
         try:
-            contracts: list[tuple[str, type[Contract]]] = [
-                ("memories", MemoryRecord),
-                ("knowledge_sources", SourceRecord),
-                ("memory_candidates", Candidate),
+            contracts: list[tuple[int, str, type[Contract]]] = [
+                (4, "memories", MemoryRecord),
+                (6, "knowledge_sources", SourceRecord),
+                (5, "memory_candidates", Candidate),
             ]
-            for table, contract in contracts:
+            for introduced, table, contract in contracts:
+                if introduced not in applied:
+                    continue
                 for (raw,) in db.execute(f"SELECT record FROM {table}"):
                     contract.model_validate_json(raw)
             if 7 in applied:
@@ -92,7 +120,8 @@ def check_db(db: sqlite3.Connection, name: str) -> int:
                 from adam.training.service import Example
 
                 personal_contracts: list[tuple[str, type[Link] | type[Goal]]] = [
-                    ("personal_links", Link), ("personal_goals", Goal)
+                    ("personal_links", Link),
+                    ("personal_goals", Goal),
                 ]
                 for table, personal_contract in personal_contracts:
                     for identifier, memory_id, raw in db.execute(
@@ -106,8 +135,9 @@ def check_db(db: sqlite3.Connection, name: str) -> int:
                 for identifier, raw in db.execute("SELECT id,record FROM training_examples"):
                     if Example.model_validate_json(raw).id != identifier:
                         raise ValueError("Mismatched training record")
-            for (raw,) in db.execute("SELECT working_state FROM sessions"):
-                WorkingState.model_validate_json(raw)
+            if 3 in applied:
+                for (raw,) in db.execute("SELECT working_state FROM sessions"):
+                    WorkingState.model_validate_json(raw)
         except ValueError:
             raise BackupError("STORAGE.RECORD_INVALID") from None
     return int(max(applied))

@@ -22,7 +22,7 @@ Start helpers are development conveniences, not the future installer.
 | GET /memory/candidates | Pending unconfirmed candidate inspector |
 | DELETE /memory/{id} | Deterministic forget of key family and identifiable support/echo records |
 
-Memory and consolidation commands use POST /chat or terminal text; see gate-2.md.
+Memory and consolidation commands use POST /chat or terminal text.
 
 Wave 5 adds authenticated tool/task routes. Profiles use separate sandboxes/stores.
 
@@ -46,7 +46,7 @@ Tool/task failures return fixed error codes with HTTP 409. An HTTP 200 action re
 can contain FAILED or UNCERTAIN; inspect result.status. A task can be FAILED/PAUSED
 despite a successful HTTP exchange. Never infer a file effect from HTTP status alone.
 Desktop DISPATCHED receipts report requested launch, not observed window success.
-See gate-5.md for examples, approval expiration and recovery limitations.
+See [computer actions](computer-actions.md) for approval and recovery limitations.
 They bypass model generation and commit memory mutation plus receipt atomically. Their
 operation receipts are VERIFIED; stored owner claims retain REPORTED/UNCERTAIN status.
 Ordinary model answers remain UNCERTAIN with model_generation provenance.
@@ -183,12 +183,12 @@ GET /health returns RECOVERY_READ_ONLY and fixed diagnostic codes; other routes
 return 503. No private inspection is exposed over HTTP in that state. Use the
 local maintenance CLI for OS-trusted inspection, partial export and fresh restore.
 Close ADAM before offline index rebuild or recovery inspection of active WAL data.
-See [Gate 7](gate-7.md) for filters, passphrase/vault requirements and purge scope.
+See [distribution and recovery](distribution.md) for backup and restore requirements.
 
 CLI: `python -m adam.cli ingest "PATH" --namespace NAME`, `sources`, `refresh`,
 `retrieve "QUESTION"`, `ask "QUESTION"`, `reindex`. Terminal adds `/namespace NAME`,
 `/ingest "PATH"`, `/sources`, `/refresh`, `/inspect QUESTION`, `/reindex`, `/ask QUESTION`.
-Detailed walkthrough: docs/operations/gate-3.md.
+Use `/help` in the terminal for command examples.
 
 Canonical policy, versions and source revision are captured in one SQLite read snapshot.
 The answer limit bounds ordinary excerpts; detected competing values remain visible
@@ -217,4 +217,4 @@ POST load/unload/benchmark/finalize/rollback accept an empty JSON object. Identi
 includes compute_capabilities. CLI: python -m adam.compute.cli hardware --benchmark,
 profiles, register PROFILE_JSON_PATH, benchmark PROFILE_ID; optional --data-dir
 precedes the command. Model mutation commands require hidden owner authentication.
-See [Gate 8](gate-8.md) and [migration](milestone-9.2.md) for persistence and limits.
+See [model library](model-library.md) for selection, persistence and limits.

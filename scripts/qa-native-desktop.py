@@ -15,6 +15,36 @@ import psutil
 from adam import APP_VERSION
 
 
+# Check the kernel process signal, rather than persistence of its PID entry.
+def running(item):
+    import win32api
+    import win32event
+
+    if not item.is_running():
+        return False
+    try:
+        handle = win32api.OpenProcess(0x00100000 | 0x1000, False, item.pid)
+    except win32api.error as error:
+        if error.winerror == 87:
+            return False
+        raise
+    try:
+        result = win32event.WaitForSingleObject(handle, 0)
+        if result == win32event.WAIT_OBJECT_0:
+            print(
+                "KERNEL_EXIT_CONFIRMED",
+                item.pid,
+                item.name(),
+                win32api.GetExitCodeProcess(handle),
+                flush=True,
+            )
+            return False
+        assert result == win32event.WAIT_TIMEOUT, result
+        return True
+    finally:
+        win32api.CloseHandle(handle)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--exe", type=Path, required=True)
@@ -108,9 +138,9 @@ def main() -> None:
                     app.kill()  # Deliberate parent crash exercises Windows job cleanup.
                 app.wait(timeout=15)
                 deadline = time.monotonic() + 15
-                while any(item.is_running() for item in owned) and time.monotonic() < deadline:
+                while any(running(item) for item in owned) and time.monotonic() < deadline:
                     time.sleep(0.1)
-                leaked = [item for item in owned if item.is_running()]
+                leaked = [item for item in owned if running(item)]
                 for item in leaked:
                     item.kill()
                 check("parent crash cleans owned descendants " + str(iteration), not leaked)

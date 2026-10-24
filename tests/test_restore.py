@@ -211,7 +211,7 @@ def test_restore_api_is_isolated_and_recovery_wal_is_visible(tmp_path):
         db.execute("UPDATE runtime_metadata SET value=value")
         db.commit()
         (tmp_path / "runtime.sqlite3-wal").write_bytes(b"synthetic unresolved WAL")
-        assert "RECOVERY.WAL_ACTIVE_CLOSE_WRITERS_FIRST" in inspect(settings)["issues"]
+        assert "STORAGE.WAL_INVALID" in inspect(settings)["issues"]
 
 
 @pytest.mark.parametrize("fault", ["settings", "identity", "journal", "memory_record"])

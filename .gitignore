@@ -32,3 +32,14 @@ releases/
 !.env.example
 *.zip
 *.pending
+
+# Local development notes and generated QA evidence do not belong in releases.
+PROJECT_ADAM_*.md
+docs/operations/evidence/
+docs/operations/gate-*.md
+docs/operations/milestone-*.md
+docs/operations/*-report.md
+.codex/
+.agents/
+AGENTS.md
+prompts/

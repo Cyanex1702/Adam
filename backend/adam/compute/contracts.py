@@ -1,9 +1,12 @@
+from typing import Literal
+
 from pydantic import Field
 
 from adam.core.contracts import Contract
 
 
 class ComputeConfig(Contract):
+    mode: Literal["eco", "priority"] = "eco"
     min_free_ram_mib: int = Field(default=512, ge=64, le=65536)
     min_free_disk_mib: int = Field(default=128, ge=16, le=65536)
     min_free_vram_mib: int = Field(default=256, ge=64, le=65536)

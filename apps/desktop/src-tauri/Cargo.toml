@@ -1,6 +1,6 @@
 [package]
 name = "adam-desktop"
-version = "0.20.0"
+version = "0.20.2"
 description = "ADAM local desktop workspace"
 edition = "2021"
 rust-version = "1.90"
@@ -9,7 +9,7 @@ custom-protocol = ["tauri/custom-protocol"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }

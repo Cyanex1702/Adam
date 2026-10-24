@@ -204,7 +204,12 @@ async def execute(
         provider = LlamaCppProvider(config.model) if real_model else ProbeProvider()
         runtime = Runtime(config, provider)
         if not real_model:
-            runtime.compute.sampler = lambda: {"scope": "scripted probe; no LLM allocation"}
+            runtime.compute.sampler = lambda: {
+                "scope": "explicit synthetic resources; scripted probe, no LLM allocation",
+                "ram_available_bytes": 4 * 1024**3,
+                "ram_used_percent": 50,
+                "disk_free_bytes": 4 * 1024**3,
+            }
         try:
             if name in FRAMEWORK:
                 trace_ids = await framework_case(name, runtime)

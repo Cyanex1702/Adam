@@ -1,11 +1,12 @@
-# Local desktop voice — Wave 10
+# Local desktop voice
 
 The compact configuration enables voice and uses offline Windows SAPI English
 speech by default. Faster-whisper base runs on CPU with int8 weights and two
 threads. Kokoro int8 remains selectable for English, French, Spanish, Italian,
 Brazilian Portuguese and Hindi output. Urdu recognition is selectable; Urdu
 speech output is unavailable. Recognition quality varies by language and room.
-No speaker recognition or voice-based authority is implemented in this wave.
+Optional speaker recognition has separate setup and consent requirements; see
+[speakers.md](speakers.md). Voice recognition does not grant owner authority.
 
 ## Setup and operation
 
@@ -17,9 +18,9 @@ install `requirements.lock.txt` or the project's `voice` extra as well.
 
 The script pins [faster-whisper base](https://huggingface.co/Systran/faster-whisper-base)
 and [Kokoro ONNX release assets](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0).
-Runtime inference uses local files, with no automatic model download. The known
-Codex Store public-asset cache is detected when necessary; private stores never
-redirect. `voice.assets_dir` can select another complete asset folder.
+Runtime inference uses local files, with no automatic model download. Supported
+public asset caches can be reused; private stores stay separate.
+`voice.assets_dir` can select another complete asset folder.
 
 Open ADAM Desktop. Record voice begins capture after the Windows/browser
 permission decision. Finish recording decodes locally and shows a review field
@@ -72,5 +73,5 @@ profile's `voice/audio` folder. Default expiry is 24 hours and 20 files (maximum
 Overdue files are removed at the next launch after shutdown. Partial audio is
 never retained. SAPI input is literal text, not speech markup.
 
-See [Gate 10](gate-10.md) for acoustic acceptance and [the report](wave-10-report.md)
-for measured results. No vision, diarization or speaker identification is added.
+Test recognition and playback with your own microphone, speakers and target
+languages. Public audio fixtures do not establish real-room speech quality.

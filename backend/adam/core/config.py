@@ -18,12 +18,60 @@ from adam.voice.contracts import VoiceConfig
 def resolve_data_dir(env: Mapping[str, str] | None = None) -> Path:
     values = os.environ if env is None else env
     if values.get("ADAM_DATA_DIR"):
-        return Path(values["ADAM_DATA_DIR"]).expanduser().resolve()
+        return canonical_profile_dir(Path(values["ADAM_DATA_DIR"]))
     if os.name == "nt":
         base = Path(values.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
     else:
         base = Path(values.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
-    return (base / "ADAM").resolve()
+    return canonical_profile_dir(base / "ADAM")
+
+
+def canonical_profile_dir(path: Path) -> Path:
+    """Bind a Windows virtualized profile to the files already backing it.
+
+    Only the known Store-host mapping is accepted, and only when every existing
+    private anchor agrees. Mixed profiles stay unmodified and fail strict scope
+    inspection. This never selects the public model cache merely because it exists.
+    """
+    root = path.expanduser().resolve()
+    local = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
+    if os.name != "nt" or root != (local / "ADAM").resolve():
+        return root
+    cached = local / "Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/ADAM"
+    if cached.is_symlink() or (hasattr(cached, "is_junction") and cached.is_junction()):
+        return root
+    anchors = [
+        "runtime.sqlite3",
+        "security/auth.sqlite3",
+        "security/vault.sqlite3",
+        "actions.sqlite3",
+        "tasks.sqlite3",
+        "config/model-catalog.json",
+        "config/model-selection.json",
+        "config/restored-settings.json",
+        "config/performance.json",
+        "config/model-library.json",
+        "operations/jobs.sqlite3",
+        "mesh/registry.sqlite3",
+        "voice/speakers.sqlite3",
+        "identity/identity.yaml",
+        "identity/personality.yaml",
+        "identity/communication.yaml",
+        "identity/epistemics.yaml",
+    ]
+    resolved = []
+    for name in anchors:
+        file = root / name
+        if file.exists():
+            if file.is_symlink() or (hasattr(file, "is_junction") and file.is_junction()):
+                return root
+            resolved.append((file.resolve(), (cached / name).resolve()))
+    if resolved and all(
+        actual == expected and actual.is_relative_to(cached.resolve())
+        for actual, expected in resolved
+    ):
+        return cached.resolve()
+    return root
 
 
 def resolve_embedding_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -139,6 +187,11 @@ class Settings(Contract):
     vault_enabled: bool = True
     vault_backend: Literal["auto", "dpapi", "fernet"] = "auto"
 
+    @field_validator("data_dir", mode="after")
+    @classmethod
+    def bind_existing_profile(cls, value: Path) -> Path:
+        return canonical_profile_dir(value)
+
 
 def load_settings(
     config_path: Path | None = None, env: Mapping[str, str] | None = None
@@ -196,4 +249,37 @@ def load_settings(
     data["features"] = flags
     settings = Settings.model_validate(data)
     settings.data_dir = settings.data_dir.expanduser().resolve()
+    return resolve_catalog_settings(settings)
+
+
+def resolve_catalog_settings(settings: Settings) -> Settings:
+    """Recover legacy catalog defaults without rewriting a profile or changing models.
+
+    Older launchers wrote a catalog but no selection receipt. Packaged TOML defaults
+    can differ in context/sampling/display fields. In that case retain the saved
+    default only for the same model identity and local endpoint. Explicit selection
+    receipts and incompatible identities still require strict validation.
+    """
+    from adam.compute.catalog import config_digest, read_catalog
+
+    if (settings.data_dir / "config/model-selection.json").exists():
+        return settings
+    try:
+        from adam.resilience.archive import scoped
+
+        path = scoped(settings.data_dir, "config/model-catalog.json")
+        if not path.exists():
+            return settings
+        catalog = read_catalog(path)
+        if any(
+            config_digest(item.model) == config_digest(settings.model)
+            for item in catalog.profiles.values()
+        ):
+            return settings
+        saved = catalog.profiles[catalog.default_id].model
+        identity = ("provider", "model_id", "base_url", "quantization")
+        if all(getattr(saved, key) == getattr(settings.model, key) for key in identity):
+            return settings.model_copy(update={"model": saved.model_copy(deep=True)})
+    except (ValueError, OSError):
+        pass  # Inspection reports invalid metadata; never reset it here.
     return settings

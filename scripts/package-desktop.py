@@ -53,15 +53,15 @@ def main():
     print("All frozen ADAM modules match final source:", modules, flush=True)
     stage.mkdir()
     sources = {"adam-desktop.exe": native, "adam.compact.toml": repo / "adam.compact.toml"}
+    sources.update({name: repo / name for name in ["LICENSE", "THIRD_PARTY.md"]})
+    for name in ["diagnostics", "model-library"]:
+        sources[name + ".md"] = repo / "docs/operations" / (name + ".md")
     for name in [
         "computer-actions",
         "distribution",
         "personal-intelligence",
         "behavior-training",
         "portfolio",
-        "gate-18",
-        "gate-19",
-        "gate-20",
     ]:
         sources[name + ".md"] = repo / "docs/operations" / (name + ".md")
     for name, source in sources.items():
@@ -131,7 +131,14 @@ def main():
         "models_and_private_stores": "EXCLUDED",
         "artifacts": artifacts,
     }
-    (repo / "docs/operations/evidence/waves18-20-delivery.json").write_text(
+    evidence_name = (
+        "waves18-20-delivery.json"
+        if APP_VERSION == "0.20.0"
+        else "repair-" + APP_VERSION.replace(".", "") + "-delivery.json"
+    )
+    evidence_dir = args.output / "qa"
+    evidence_dir.mkdir(exist_ok=True)
+    (evidence_dir / evidence_name).write_text(
         json.dumps(receipt, indent=2) + "\n", encoding="utf-8"
     )
     print(json.dumps(receipt), flush=True)

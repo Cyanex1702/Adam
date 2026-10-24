@@ -26,7 +26,10 @@ def installed(tmp_path, monkeypatch):
     )
 
 
-def test_owned_load_unload_uses_fixed_arguments_and_stops_only_owned_handle(tmp_path, monkeypatch):
+@pytest.mark.parametrize("stop_loading", [False, True])
+def test_owned_load_unload_uses_fixed_arguments_and_stops_only_owned_handle(
+    tmp_path, monkeypatch, stop_loading
+):
     item = installed(tmp_path, monkeypatch)
     calls = []
 
@@ -47,18 +50,33 @@ def test_owned_load_unload_uses_fixed_arguments_and_stops_only_owned_handle(tmp_
             return 0
 
     monkeypatch.setattr("adam.compute.owned.subprocess.Popen", Process)
+    monkeypatch.setattr(
+        "adam.compute.owned.ChildGuard",
+        lambda process: type("Guard", (), {"close": lambda self: None})(),
+    )
+    monkeypatch.setattr("adam.compute.owned.ModelIndicator.start", lambda self: False)
     provider = OwnedLlamaProvider(item)
 
     async def health():
+        if stop_loading:
+            await provider.unload()
         return ModelHealth(status="HEALTHY", model_id=item.model.model_id)
 
     monkeypatch.setattr(provider, "health_check", health)
 
     async def scenario():
+        if stop_loading:
+            with pytest.raises(ComputeError, match="MODEL.LOAD_FAILED"):
+                await provider.load()
+            assert provider.process is None
+            return
         assert (await provider.load()).status == "HEALTHY"
         handle = provider.process
         assert calls[0][0] == str(tmp_path / "runtime/llama/llama-server.exe")
         assert "--no-agent" in calls[0] and "none" in calls[0]
+        assert "--no-repack" in calls[0]
+        assert calls[0][calls[0].index("--batch-size") + 1] == "64"
+        assert calls[0][calls[0].index("--ubatch-size") + 1] == "32"
         await provider.unload()
         assert handle.stopped and provider.process is None
         await provider.unload()
@@ -104,3 +122,51 @@ def test_owned_launch_failure_is_sanitized(tmp_path, monkeypatch):
     with pytest.raises(ComputeError, match="MODEL.LOAD_FAILED"):
         asyncio.run(provider.load())
     assert provider.process is None
+
+
+@pytest.mark.parametrize("available,repack", [(1300 * 1024**2, False), (4 * 1024**3, True)])
+def test_priority_repacking_requires_room_for_an_extra_weight_layout(
+    tmp_path, monkeypatch, available, repack
+):
+    item = installed(tmp_path, monkeypatch)
+    calls = []
+
+    class Process:
+        stopped = False
+
+        def __init__(self, arguments, **kwargs):
+            calls.append(arguments)
+
+        def poll(self):
+            return 0 if self.stopped else None
+
+        def terminate(self):
+            self.stopped = True
+
+        def wait(self, timeout):
+            return 0
+
+    monkeypatch.setattr(
+        "adam.compute.owned.psutil.virtual_memory",
+        lambda: type("Memory", (), {"available": available})(),
+    )
+    monkeypatch.setattr("adam.compute.owned.subprocess.Popen", Process)
+    monkeypatch.setattr(
+        "adam.compute.owned.ChildGuard",
+        lambda process: type("Guard", (), {"close": lambda self: None})(),
+    )
+    monkeypatch.setattr("adam.compute.owned.ModelIndicator.start", lambda self: False)
+    provider = OwnedLlamaProvider(item, mode="priority")
+
+    async def health():
+        return ModelHealth(status="HEALTHY", model_id=item.model.model_id)
+
+    monkeypatch.setattr(provider, "health_check", health)
+
+    async def scenario():
+        await provider.load()
+        assert provider.repack == repack
+        assert ("--no-repack" not in calls[0]) == repack
+        await provider.unload()
+
+    asyncio.run(scenario())

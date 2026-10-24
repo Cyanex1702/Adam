@@ -1,6 +1,8 @@
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from fastapi import FastAPI, Request
@@ -8,23 +10,63 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from adam import APP_VERSION
-from adam.core.config import Settings
+from adam.core.config import Settings, resolve_catalog_settings
 from adam.identity.service import IdentityService
 from adam.resilience.archive import DB_PATHS, check_db, scoped
 from adam.resilience.contracts import BackupError
 
 
 def recovery_readonly(path: Path) -> sqlite3.Connection:
+    from adam.resilience.archive import no_link
+
     wal = path.with_name(path.name + "-wal")
+    no_link(wal)
+    no_link(path.with_name(path.name + "-shm"))
     if wal.exists() and wal.stat().st_size:
-        raise BackupError("RECOVERY.WAL_ACTIVE_CLOSE_WRITERS_FIRST")
-    return sqlite3.connect(path.resolve().as_uri() + "?mode=ro&immutable=1", uri=True)
+        with wal.open("rb") as stream:
+            header = stream.read(32)
+        if len(header) != 32 or header[:4] not in {b"\x37\x7f\x06\x82", b"\x37\x7f\x06\x83"}:
+            raise BackupError("STORAGE.WAL_INVALID")
+        order: Literal["little", "big"] = "little" if header[3] == 0x82 else "big"
+        words = [int.from_bytes(header[i : i + 4], order) for i in range(0, 24, 4)]
+        first = second = 0
+        for index in range(0, len(words), 2):
+            first = (first + words[index] + second) & 0xFFFFFFFF
+            second = (second + words[index + 1] + first) & 0xFFFFFFFF
+        if (first, second) != (
+            int.from_bytes(header[24:28], "big"),
+            int.from_bytes(header[28:32], "big"),
+        ):
+            raise BackupError("STORAGE.WAL_INVALID")
+    # immutable=1 ignores WAL state. Let SQLite establish a consistent read
+    # transaction instead; mode=ro never checkpoints or writes original DB pages.
+    db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+    db.execute("PRAGMA query_only=ON")
+    db.execute("BEGIN")
+    return db
+
+
+def storage_issue(error: BaseException) -> str:
+    if isinstance(error, BackupError):
+        return error.code
+    primary = getattr(error, "sqlite_errorcode", 0) & 0xFF
+    if primary in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+        return "STORAGE.BUSY"
+    if primary in {sqlite3.SQLITE_CANTOPEN, sqlite3.SQLITE_READONLY, sqlite3.SQLITE_PERM}:
+        return "STORAGE.ACCESS_DENIED"
+    if primary == sqlite3.SQLITE_IOERR or isinstance(error, OSError):
+        return "STORAGE.IO_FAILED"
+    if primary in {sqlite3.SQLITE_ERROR, sqlite3.SQLITE_SCHEMA}:
+        return "STORAGE.SCHEMA_MISMATCH"
+    return "STORAGE.INTEGRITY_FAILED"
 
 
 def inspect(settings: Settings) -> dict[str, object]:
-    """No initialization, migrations, lock files, writes or model calls."""
+    """No migrations, database writes or model calls; SQLite coordinates read locks."""
+    settings = resolve_catalog_settings(settings)
     issues: list[str] = []
     stores: dict[str, str] = {}
+    schemas: dict[str, int] = {}
     names = [*DB_PATHS]
     if settings.vault_enabled:
         names.append("security/vault.sqlite3")
@@ -35,10 +77,10 @@ def inspect(settings: Settings) -> dict[str, object]:
                 stores[name] = "ABSENT"
                 continue
             with closing(recovery_readonly(path)) as db:
-                check_db(db, name)
+                schemas[name] = check_db(db, name)
             stores[name] = "HEALTHY"
         except (BackupError, sqlite3.Error, OSError) as error:
-            code = error.code if isinstance(error, BackupError) else "STORAGE.INTEGRITY_FAILED"
+            code = storage_issue(error)
             stores[name] = code
             issues.append(code)
     try:
@@ -73,10 +115,21 @@ def inspect(settings: Settings) -> dict[str, object]:
             Settings.model_validate_json(saved.read_bytes())
         except (ValueError, OSError):
             issues.append("CONFIG.INVALID")
+    try:
+        preference = scoped(settings.data_dir, "config/performance.json")
+        if preference.exists():
+            if preference.stat().st_size > 1024:
+                raise ValueError
+            value = json.loads(preference.read_bytes())
+            if set(value) != {"mode"} or value["mode"] not in {"eco", "priority"}:
+                raise ValueError
+    except (ValueError, OSError):
+        issues.append("CONFIG.PERFORMANCE_INVALID")
     return {
         "mode": "RECOVERY_READ_ONLY" if issues else "HEALTHY",
         "issues": sorted(set(issues)),
         "stores": stores,
+        "schemas": schemas,
         "model_required": False,
         "derived_indexes": "REBUILDABLE_NOT_CRITICAL",
     }
@@ -109,6 +162,7 @@ class RecoveryService:
 
 def recovery_app(settings: Settings, initial_issues: list[str] | None = None) -> FastAPI:
     app = FastAPI(title="ADAM recovery - local CLI required", version=APP_VERSION)
+    app.state.recovery_issues = initial_issues or inspect(settings)["issues"]
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
 
     @app.middleware("http")

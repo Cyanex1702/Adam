@@ -3,11 +3,29 @@ vi.mock("./bridge", () => ({ api: vi.fn() }));
 import * as bridge from "./bridge";
 import {
   automaticText,
+  Microphone,
   pcmBase64,
   SpeechPlayer,
   speechChunks,
   type Transcript,
 } from "./voice";
+
+it("stops a late microphone grant after the window was hidden", async () => {
+  let grant!: (stream: MediaStream) => void;
+  const track = { stop: vi.fn() };
+  const createAudio = vi.fn();
+  vi.stubGlobal("navigator", {mediaDevices: {getUserMedia: () => new Promise<MediaStream>(resolve => {grant = resolve;})}});
+  vi.stubGlobal("AudioContext", createAudio);
+  try {
+    const microphone = new Microphone();
+    const starting = microphone.start(vi.fn());
+    microphone.stop();
+    grant({getTracks: () => [track]} as unknown as MediaStream);
+    await starting;
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(createAudio).not.toHaveBeenCalled();
+  } finally { vi.unstubAllGlobals(); }
+});
 
 describe("voice input and bounded sentence output", () => {
   const value: Transcript = {

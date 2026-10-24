@@ -26,7 +26,7 @@ The notice window is hidden afterwards and released when the service exits.
 
 Default allowed application: `notepad.exe`. The owner may specify additional
 executable basenames and private title substrings. Browsers, known credential
-applications, ADAM, Codex and sensitive title patterns are denied. These checks
+applications, ADAM, coding-assistant windows and sensitive title patterns are denied. These checks
 and recognizable-secret filtering are heuristics, not comprehensive protection
 against private content. Inspect the selected window before opting in.
 

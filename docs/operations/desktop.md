@@ -1,29 +1,24 @@
-# ADAM desktop (0.11.0)
+# ADAM desktop
 
 The Windows desktop app adds chat, saved conversation history, memory search,
 owner/demo switching, settings, developer diagnostics and an operational orb.
 The existing terminal and API remain available. Local voice is available in the desktop.
 
-Install the current-user Windows installer from the Wave 11 delivery folder.
+Install the current-user Windows installer for the release you downloaded.
 Launch ADAM Desktop from the Start menu. The app installs under
 `%LOCALAPPDATA%/ADAM Desktop`, separately from `%LOCALAPPDATA%/ADAM` data and
 model assets. The installer rejects a destination containing an existing ADAM store. No Python, Node or terminal is needed to run the
-packaged app. Model weights, llama.cpp and E5 assets remain separate; this PC
-already has them. Known public model assets installed through Codex are also
-found on normal desktop launches; personal data stays in its existing directory. A fresh PC needs `scripts/setup-model.ps1` before model chat.
+packaged app. Model weights, llama.cpp and E5 assets remain separate. Existing
+supported public asset caches can be reused; personal data stays in its existing
+directory. A fresh PC needs `scripts/setup-model.ps1` before model chat.
 Missing models produce an offline state; memory commands remain usable.
-
-On this PC, installation through the Codex Windows Store process places app
-files in its LocalCache. The Start menu shortcut was repaired and verified
-against the physical installed executable path so it can launch outside Codex.
-Running the delivered installer normally uses the standard install location.
 
 On first launch, create an owner passphrase of at least 12 characters. An existing
 installation uses its existing passphrase. Forgotten passphrases cannot be
 recovered by the UI. Explore fictional demo uses a separate synthetic profile.
 Lock the workspace before leaving the PC. Display preferences are the only data
 saved in WebView local storage; conversation history lives in the backend store.
-Local databases are cleartext under your Windows account, as in previous waves.
+Local databases are cleartext under your Windows account.
 
 Chat supports Enter to send and Shift+Enter for a new line. Select a saved
 conversation to resume it. Stop response cancels the active stream; partial
@@ -35,7 +30,8 @@ operational metadata; it does not show hidden reasoning.
 
 Settings can disable the avatar or reduce motion. The orb reflects actual
 request/events/connection state, active microphone capture and spoken PCM energy.
-Vision remains unavailable. When a backend stops,
+Optional image reading requires explicit opt-in; see [vision.md](vision.md).
+When a backend stops,
 restart the local service from the visible recovery control and unlock again.
 Restarting preserves committed history and memory.
 
@@ -65,7 +61,8 @@ Closing ADAM asks its owned service to shut down, then uses a Windows job object
 to clean up owned descendants. It never kills an unrelated model server. An
 occupied model port is refused rather than adopted. A second desktop instance
 focuses the first. Window position/size persist through the Tauri window-state
-plugin. No tray/background startup is enabled.
+plugin. Background mode is off at launch. An authenticated owner can explicitly
+enable it when the tray is available; use the tray's Quit action to stop ADAM.
 
 ## Building
 
@@ -73,9 +70,8 @@ Run `scripts/build-desktop.ps1` from PowerShell after `scripts/dev.ps1 -Install`
 The script resolves the real Python environment, installs pinned build tools,
 freezes the service, runs npm's lockfile install, builds Tauri and creates NSIS.
 Stop the development Vite server before building; Windows locks its native
-bundler DLL while it is running. This PC's build tools are Rust 1.99, Node 24,
-MSVC 14.51 and Windows SDK 10.0.26100. The script records their local paths;
-adjust those paths on another development PC. Rust is under
+bundler DLL while it is running. Install Node, Rust, MSVC C++ build tools and a
+Windows SDK. The build helper detects installed toolchains. Rust is under
 `%LOCALAPPDATA%/ADAM/desktop-build`, with no global PATH changes.
 
 The installer is unsigned. WebView2 is required; Tauri's installer bootstraps

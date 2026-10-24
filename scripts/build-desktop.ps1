@@ -1,3 +1,4 @@
+param([switch]$Incremental)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
@@ -10,7 +11,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Backend dependency installation failed.' }
 $resources = Join-Path $projectRoot 'apps\desktop\src-tauri\resources'
 New-Item -ItemType Directory -Path $resources -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'adam.compact.toml') -Destination (Join-Path $resources 'adam.compact.toml') -Force
-& $pythonExe -m PyInstaller --clean --noconfirm --distpath $resources --workpath (Join-Path $buildRoot 'pyinstaller') scripts/desktop-service.spec
+foreach ($noticeName in @('LICENSE', 'THIRD_PARTY.md')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot $noticeName) -Destination (Join-Path $resources $noticeName) -Force
+}
+$cleanArguments = if ($Incremental) { @() } else { @('--clean') }
+& $pythonExe -m PyInstaller @cleanArguments --noconfirm --distpath $resources --workpath (Join-Path $buildRoot 'pyinstaller') scripts/desktop-service.spec
 if ($LASTEXITCODE -ne 0) { throw 'Backend packaging failed.' }
 . (Join-Path $PSScriptRoot 'desktop-build-env.ps1')
 Set-Location -LiteralPath (Join-Path $projectRoot 'apps\desktop')

@@ -92,6 +92,21 @@ export async function cancel() {
   else browserCancel?.abort();
 }
 
+export async function backgroundStatus(): Promise<{enabled:boolean;tray_available:boolean}> {
+  return native ? invoke("background_status") : {enabled:false,tray_available:false};
+}
+export async function backgroundMode(enabled: boolean) {
+  if (!native) throw "DESKTOP.NATIVE_REQUIRED";
+  return invoke<{enabled:boolean}>("background_mode", {enabled});
+}
+export async function quit() {
+  if (!native) throw "DESKTOP.NATIVE_REQUIRED";
+  return invoke("quit_app");
+}
+export async function onHidden(callback: () => void) {
+  return native ? listen("adam:hidden", callback) : () => {};
+}
+
 export async function applyRelease(ticket: string, token: string) {
   if (!native) throw "DESKTOP.NATIVE_REQUIRED";
   return invoke("apply_release", { ticket, token });

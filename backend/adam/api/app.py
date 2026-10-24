@@ -15,7 +15,7 @@ from adam import APP_VERSION
 from adam.compute.api import install_compute
 from adam.computer.api import install_computer
 from adam.computer.service import Computer
-from adam.core.config import Settings, load_settings
+from adam.core.config import Settings, load_settings, resolve_catalog_settings
 from adam.core.contracts import Contract, ErrorEnvelope, EventEnvelope, SessionId, TraceId, new_id
 from adam.core.migrations import migrate
 from adam.core.runtime import ChatRequest
@@ -53,7 +53,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     from adam.resilience.recovery import inspect, recovery_app
 
     try:
-        config = settings or load_settings()
+        config = resolve_catalog_settings(settings) if settings else load_settings()
     except (ValueError, OSError):
         from adam.core.config import resolve_data_dir
 
@@ -73,13 +73,39 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         migrate(config.data_dir / "runtime.sqlite3")
-        await models_controller.startup()
+
+        # The login/recovery UI must remain usable while model loading is slow,
+        # blocked by resources, or waiting for an external server.
+        async def watch_model() -> None:
+            await models_controller.startup()
+            manager = models_controller.manager
+            while True:
+                await asyncio.sleep(5)
+                if manager.operation_active or manager.turns:
+                    continue
+                from adam.compute.owned import OwnedLlamaProvider
+
+                if not isinstance(manager.delegate, OwnedLlamaProvider) and manager.error in {
+                    "MODEL.UNAVAILABLE",
+                    "MODEL.CONTEXT_MISMATCH",
+                    "MODEL.IDENTITY_MISMATCH",
+                }:
+                    health = await manager.delegate.health_check()
+                    manager.last_health = health
+                    if health.status == "HEALTHY":
+                        manager.error, manager.state = None, "LOADED"
+                else:
+                    await manager.health_check()
+
+        model_startup = asyncio.create_task(watch_model())
         await pool.owner.consolidation.start(config.consolidation_interval_seconds)
         if operations:
             await operations.start()
         try:
             yield
         finally:
+            model_startup.cancel()
+            await asyncio.gather(model_startup, return_exceptions=True)
             if hasattr(app.state, "setup"):
                 app.state.setup.cancel.set()
             if operations:

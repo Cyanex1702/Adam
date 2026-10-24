@@ -3,10 +3,13 @@ import asyncio
 import getpass
 import io
 import json
+import os
 import secrets
 import sys
 
+from adam import APP_VERSION
 from adam.compute.migration import ModelController
+from adam.compute.terminal import command as runtime_command
 from adam.core.config import Settings, load_settings
 from adam.core.contracts import SessionId
 from adam.core.migrations import migrate
@@ -51,13 +54,17 @@ async def chat_loop(settings: Settings, mode: Mode = "owner") -> None:
     await runtime.consolidation.start(settings.consolidation_interval_seconds)
     session_id: SessionId | None = None
     namespace = "demo" if mode == "demo" else "default"
-    print("ADAM Alpha | /new | /sessions | /resume ID | /status | /quit")
-    print("Conversations persist locally. Never submit credentials. Traces omit chat text.")
-    print('/ingest "PATH" | /namespace NAME | /ask QUESTION | /inspect QUESTION | /reindex')
-    print(f"[MODE: {mode.upper()}] /mode owner|guest|demo | /auth-init (local owner only)")
-    print("/vault status|unlock|lock|handles|put PURPOSE|delete HANDLE (owner reauthentication)")
-    print("/tools | /tool JSON | /actions | /approve-action ID DIGEST | /run-action ID | /undo ID")
-    print("/plan diagnose . | /plan organize . | /tasks | /approve-task ID DIGEST | /run-task ID")
+    careful = False
+    print(
+        f"ADAM {APP_VERSION} · {mode.title()} workspace · "
+        f"{runtime.compute.config.mode.title()} mode"
+    )
+    print("Ask a question to begin. /help explains commands; /quit exits.")
+    print("Conversations persist locally. Never submit credentials.")
+    if runtime.compute.error:
+        print(
+            "Model needs attention: " + runtime.compute.error + ". Use /diagnostics for next steps."
+        )
     try:
         while True:
             try:
@@ -66,6 +73,23 @@ async def chat_loop(settings: Settings, mode: Mode = "owner") -> None:
                 return
             if text.strip() == "/quit":
                 return
+            if text.startswith("/careful "):
+                value = text.partition(" ")[2].strip()
+                if value not in {"on", "off"}:
+                    print("Use /careful on or /careful off.")
+                else:
+                    careful = value == "on"
+                    print(
+                        "Careful review "
+                        + (
+                            "enabled: two model passes, slower and still fallible."
+                            if careful
+                            else "disabled: one model pass."
+                        )
+                    )
+                continue
+            if await runtime_command(text, runtime):
+                continue
             if await handle_command(text, runtime, auth):
                 continue
             if text.startswith("/vault "):
@@ -269,6 +293,7 @@ async def chat_loop(settings: Settings, mode: Mode = "owner") -> None:
                     text=text,
                     session_id=session_id,
                     knowledge_namespace=namespace if text.startswith("/ask ") else None,
+                    careful=careful,
                 )
             ):
                 if event.session_id:
@@ -276,7 +301,18 @@ async def chat_loop(settings: Settings, mode: Mode = "owner") -> None:
                 if event.event_type == "agent.token":
                     print(event.payload["text"], end="", flush=True)
                 elif event.event_type == "agent.error":
-                    print(f"\n[FAILED / partial response incomplete] {event.payload['error']}")
+                    from adam.compute.diagnostics import describe
+
+                    error = event.payload["error"]
+                    if isinstance(error, dict):
+                        code = str(error.get("code", "MODEL.UNAVAILABLE"))
+                        guidance = describe(code)
+                        print(f"\n[Incomplete · {code}] {error.get('message', guidance['title'])}")
+                        print(
+                            "Next: "
+                            + guidance["next_step"]
+                            + "  /diagnostics shows current checks."
+                        )
             print()
     finally:
         await runtime.consolidation.stop()
@@ -328,6 +364,10 @@ def main() -> None:
             )
         )
         return
+    if os.environ.get("ADAM_MANAGED_SOURCE") == "1" and args.command in {"chat", "serve"}:
+        from adam.desktop.service import adopt_initial_runtime
+
+        adopt_initial_runtime(settings)
     if args.mode != "owner" and args.command not in {"chat", "serve"}:
         parser.error("Non-owner modes support chat only; serve uses authenticated API sessions")
     try:

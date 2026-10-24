@@ -32,6 +32,8 @@ class DistributionError(BackupError):
 
 LOCAL_FILES = {
     "config/model-catalog.json",
+    "config/model-library.json",
+    "config/performance.json",
     "mesh/network.json",
     "mesh/tls/ca.crt",
     "mesh/tls/cert.pem",

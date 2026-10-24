@@ -27,6 +27,8 @@ struct AppState {
     busy: AtomicBool,
     epoch: AtomicU64,
     cancel: watch::Sender<u64>,
+    background: AtomicBool,
+    tray_available: AtomicBool,
 }
 struct Busy<'a>(&'a AtomicBool);
 impl Drop for Busy<'_> {
@@ -55,6 +57,10 @@ fn allowed(method: &str, path: &str) -> bool {
     if method == "GET"
         && [
             "/desktop/status",
+            "/desktop/diagnostics",
+            "/diagnostics",
+            "/performance",
+            "/models/library",
             "/voice/status",
             "/voice/speakers",
             "/health",
@@ -93,6 +99,12 @@ fn allowed(method: &str, path: &str) -> bool {
     if method == "POST"
         && [
             "/desktop/setup",
+            "/performance",
+            "/model/reload",
+            "/models/scan",
+            "/models/approve",
+            "/models/automatic",
+            "/models/select",
             "/voice/transcribe",
             "/developer/voice/enroll",
             "/developer/voice/remove",
@@ -196,6 +208,7 @@ fn launch(app: &tauri::AppHandle) -> Result<Backend, String> {
     }
     let mut command = Command::new(executable);
     command
+        .env("ADAM_DESKTOP_HOST", "1")
         .arg("--config")
         .arg(root.join("adam.compact.toml"))
         .stdin(Stdio::piped())
@@ -236,6 +249,12 @@ fn launch(app: &tauri::AppHandle) -> Result<Backend, String> {
         .recv_timeout(Duration::from_secs(150))
         .ok()
         .and_then(|line| serde_json::from_str::<Value>(&line).ok());
+    if let Some(failed) = receipt.as_ref().filter(|value| value["event"] == "failed") {
+        let code = error(failed, "DESKTOP.START_FAILED");
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(code);
+    }
     let valid = receipt
         .as_ref()
         .filter(|value| value["event"] == "ready")
@@ -304,6 +323,58 @@ fn connection(state: &AppState) -> Result<(u16, String, Option<String>), String>
         return Err("DESKTOP.BACKEND_STOPPED".into());
     }
     Ok((backend.port, backend.nonce.clone(), backend.token.clone()))
+}
+
+#[tauri::command]
+async fn background_mode(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<Value, String> {
+    if enabled {
+        if !state.tray_available.load(Ordering::SeqCst) {
+            return Err("DESKTOP.TRAY_UNAVAILABLE".into());
+        }
+        let (port, nonce, token) = connection(&state)?;
+        let response = client()?
+            .get(format!("http://127.0.0.1:{port}/auth/status"))
+            .header("x-adam-desktop", nonce)
+            .bearer_auth(token.ok_or("AUTH.REQUIRED")?)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(|_| "DESKTOP.CONNECTION_LOST")?;
+        let value: Value = response
+            .json()
+            .await
+            .map_err(|_| "DESKTOP.REQUEST_FAILED")?;
+        if value["mode"] != "owner" {
+            return Err("POLICY.OWNER_REQUIRED".into());
+        }
+    }
+    state.background.store(enabled, Ordering::SeqCst);
+    if let Some(tray) = app.tray_by_id("adam-status") {
+        let _ = tray.set_tooltip(Some(if enabled {
+            "ADAM running · background enabled · open to see activity"
+        } else {
+            "ADAM running · close window to quit"
+        }));
+    }
+    Ok(json!({"enabled":enabled}))
+}
+
+#[tauri::command]
+fn background_status(state: State<'_, AppState>) -> Value {
+    json!({"enabled":state.background.load(Ordering::SeqCst),
+           "tray_available":state.tray_available.load(Ordering::SeqCst)})
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.state::<AppState>()
+        .background
+        .store(false, Ordering::SeqCst);
+    app.exit(0);
 }
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
@@ -379,7 +450,12 @@ async fn api_request(
         .header("x-adam-desktop", nonce)
         .timeout(Duration::from_secs(if voice {
             180
-        } else if path.starts_with("/computer") || path.starts_with("/distribution") {
+        } else if path.starts_with("/computer")
+            || path.starts_with("/distribution")
+            || path.starts_with("/models/")
+            || path == "/model/reload"
+            || path == "/performance"
+        {
             300
         } else if path.starts_with("/vision") {
             90
@@ -392,10 +468,13 @@ async fn api_request(
     if let Some(body) = body {
         request = request.json(&body);
     }
-    let response = request
-        .send()
-        .await
-        .map_err(|_| "DESKTOP.CONNECTION_LOST")?;
+    let response = request.send().await.map_err(|error| {
+        if error.is_timeout() {
+            "DESKTOP.REQUEST_TIMEOUT"
+        } else {
+            "DESKTOP.CONNECTION_LOST"
+        }
+    })?;
     let status = response.status();
     let output_limit = if path == "/voice/speak" {
         3 * 1024 * 1024
@@ -470,6 +549,11 @@ async fn chat(
     let (port, nonce, token) = connection(&state)?;
     let epoch = state.epoch.load(Ordering::SeqCst);
     let token = token.ok_or("AUTH.REQUIRED")?;
+    let deadline_seconds = if body["careful"].as_bool().unwrap_or(false) {
+        600
+    } else {
+        300
+    };
     let operation = async {
         let response = client()?
             .post(format!("http://127.0.0.1:{port}/desktop/chat"))
@@ -521,7 +605,7 @@ async fn chat(
         Ok(json!({"finished":true}))
     };
     tokio::select! {
-        result=tokio::time::timeout(Duration::from_secs(180),operation)=>result.map_err(|_| "MODEL.TIMEOUT")?,
+        result=tokio::time::timeout(Duration::from_secs(deadline_seconds),operation)=>result.map_err(|_| "MODEL.TIMEOUT")?,
         _=cancel.changed()=>Ok(json!({"cancelled":true})),
     }
 }
@@ -621,13 +705,84 @@ fn main() {
             busy: AtomicBool::new(false),
             epoch: AtomicU64::new(0),
             cancel,
+            background: AtomicBool::new(false),
+            tray_available: AtomicBool::new(false),
+        })
+        .setup(|app| {
+            use tauri::{
+                menu::{Menu, MenuItem},
+                tray::TrayIconBuilder,
+            };
+            // A failed tray must never strand a hidden application.
+            let created = (|| -> tauri::Result<()> {
+                let show = MenuItem::with_id(
+                    app,
+                    "show",
+                    "Open ADAM / view activity",
+                    true,
+                    None::<&str>,
+                )?;
+                let quit = MenuItem::with_id(
+                    app,
+                    "quit",
+                    "Quit ADAM and stop owned model",
+                    true,
+                    None::<&str>,
+                )?;
+                let menu = Menu::with_items(app, &[&show, &quit])?;
+                let mut builder = TrayIconBuilder::with_id("adam-status")
+                    .tooltip("ADAM running · close window to quit")
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.unminimize();
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            app.state::<AppState>()
+                                .background
+                                .store(false, Ordering::SeqCst);
+                            app.exit(0);
+                        }
+                        _ => {}
+                    });
+                if let Some(icon) = app.default_window_icon() {
+                    builder = builder.icon(icon.clone());
+                }
+                builder.build(app)?;
+                Ok(())
+            })();
+            app.state::<AppState>()
+                .tray_available
+                .store(created.is_ok(), Ordering::SeqCst);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<AppState>();
+                if state.background.load(Ordering::SeqCst)
+                    && state.tray_available.load(Ordering::SeqCst)
+                {
+                    // Reset capture before hiding; visibilitychange independently stops it too.
+                    let _ = window.emit("adam:hidden", ());
+                    if window.hide().is_ok() {
+                        api.prevent_close();
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             apply_release,
             backend_start,
             api_request,
             chat,
-            cancel_chat
+            cancel_chat,
+            background_mode,
+            background_status,
+            quit_app
         ])
         .build(tauri::generate_context!())
         .expect("ADAM desktop initialization failed");

@@ -2,13 +2,16 @@
 
 import argparse
 import json
+import os
 import queue
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import httpx
+import psutil
 from adam import APP_VERSION
 
 
@@ -64,6 +67,14 @@ def main() -> None:
                         "nonce required " + str(iteration), client.get("/health").status_code == 403
                     )
                     client.headers["x-adam-desktop"] = receipt["nonce"]
+                    report = client.get("/desktop/diagnostics")
+                    check(
+                        "diagnostics available before login " + str(iteration),
+                        report.status_code == 200,
+                    )
+                    check(
+                        "diagnostic paths excluded " + str(iteration), directory not in report.text
+                    )
                     check(
                         "browser origin denied " + str(iteration),
                         client.get(
@@ -103,6 +114,46 @@ def main() -> None:
                         client.get("/developer/compute").status_code == 403,
                     )
                     if args.real and not iteration:
+                        deadline = time.monotonic() + 120
+                        while (
+                            client.get("/desktop/status").json()["model_status"] != "HEALTHY"
+                            and time.monotonic() < deadline
+                        ):
+                            time.sleep(0.25)
+                        check(
+                            "model becomes ready independently of login",
+                            client.get("/desktop/status").json()["model_status"] == "HEALTHY",
+                        )
+                        process = client.get("/desktop/diagnostics").json()["model"]["process"]
+                        owned = psutil.Process(process["pid"])
+                        command_line = owned.cmdline()
+                        check(
+                            "real Eco process priority",
+                            owned.nice() == psutil.BELOW_NORMAL_PRIORITY_CLASS,
+                        )
+                        check(
+                            "real Eco inference threads",
+                            command_line[command_line.index("-t") + 1]
+                            == str(min(2, max(1, (os.cpu_count() or 2) - 1))),
+                        )
+                        changed = client.post("/performance", json={"mode": "priority"})
+                        check(
+                            "owner applies Priority without service restart",
+                            changed.status_code == 200,
+                        )
+                        process = client.get("/desktop/diagnostics").json()["model"]["process"]
+                        priority = psutil.Process(process["pid"])
+                        command_line = priority.cmdline()
+                        check(
+                            "real Priority process priority",
+                            priority.nice() == psutil.ABOVE_NORMAL_PRIORITY_CLASS,
+                        )
+                        check(
+                            "real Priority inference threads",
+                            command_line[command_line.index("-t") + 1]
+                            == str(min(6, max(1, (os.cpu_count() or 2) - 1))),
+                        )
+                        check("mode change reaps prior owned process", not owned.is_running())
                         card = client.get("/identity").json()["model"]
                         check("real model identity", card["provider"] != "fixture")
                         answer = client.post("/desktop/chat", json={"text": "What are you?"})

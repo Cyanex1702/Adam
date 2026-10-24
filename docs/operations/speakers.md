@@ -47,6 +47,6 @@ other replay risk is explicitly NOT_RULED_OUT. No liveness or clone defense is
 claimed. Owner passwords/device/session boundaries remain authoritative.
 
 Spatial audio is DEFERRED_MONO_CAPTURE. Direction/distance are not fabricated.
-Public recorded English fixture QA does not replace [Gate 11](gate-11.md).
+Public recorded English fixture QA does not replace real-microphone acceptance testing.
 Models: [speaker identification example](https://github.com/k2-fsa/sherpa-onnx/blob/master/python-api-examples/speaker-identification.py)
 and [diarization models](https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/models.html).

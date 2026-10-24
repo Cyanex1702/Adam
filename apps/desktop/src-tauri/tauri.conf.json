@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ADAM Desktop",
-  "version": "0.20.0",
+  "version": "0.20.2",
   "identifier": "local.adam.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -33,7 +33,9 @@
     "shortDescription": "A private local assistant workspace",
     "resources": {
       "resources/backend/": "backend/",
-      "resources/adam.compact.toml": "adam.compact.toml"
+      "resources/adam.compact.toml": "adam.compact.toml",
+      "resources/LICENSE": "LICENSE",
+      "resources/THIRD_PARTY.md": "THIRD_PARTY.md"
     },
     "windows": {
       "nsis": {

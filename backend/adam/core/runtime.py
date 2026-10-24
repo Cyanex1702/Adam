@@ -43,6 +43,7 @@ class ChatRequest(Contract):
     session_id: SessionId | None = None
     sensitivity: str = "PERSONAL"
     knowledge_namespace: str | None = Field(default=None, pattern=r"^[\w-]{1,64}$")
+    careful: bool = False
 
 
 @dataclass
@@ -204,7 +205,7 @@ class Runtime:
 
     async def stream(self, request: ChatRequest) -> AsyncGenerator[EventEnvelope, None]:
         try:
-            async with self.compute.turn():
+            async with self.compute.turn(("analyze " if request.careful else "") + request.text):
                 self.context = ContextBuilder(
                     self.provider,
                     self.provider.get_context_limit(),
@@ -645,6 +646,9 @@ class Runtime:
                     "model": model.model_dump(),
                     "state": "THINKING",
                     "context_budget": budget.model_dump(),
+                    "model_selection": self.compute.controller.library.last_route
+                    if self.compute.controller
+                    else None,
                 },
             )
             chunks: list[str] = []
@@ -652,7 +656,21 @@ class Runtime:
             size = 0
             stage_started = perf_counter()
             first_token = True
-            async with closing_stream(self.provider.stream(messages, trace_id)) as model_stream:
+            from adam.models.review import reviewed_stream
+
+            review_statistics: dict[str, object] = {}
+            output_stream = (
+                reviewed_stream(
+                    self.provider,
+                    messages,
+                    trace_id,
+                    self.compute.settings.model.max_tokens,
+                    review_statistics,
+                )
+                if request.careful
+                else self.provider.stream(messages, trace_id)
+            )
+            async with closing_stream(output_stream) as model_stream:
                 async for chunk in model_stream:
                     if first_token:
                         point(
@@ -763,6 +781,8 @@ class Runtime:
                     "identity_digest": self.identity.digest,
                     "elapsed_ms": round((perf_counter() - started) * 1000, 2),
                     "context_budget": budget.model_dump(),
+                    "answer_mode": "CAREFUL_TWO_PASS" if request.careful else "STANDARD",
+                    "review": review_statistics,
                 },
             )
         except AdamError as exc:

@@ -301,9 +301,7 @@ def main() -> None:
         "private_data_included": False,
         "license": "Community Non-Commercial License v1.0",
     }
-    (repo / "docs/operations/evidence/waves18-20-source-delivery.json").write_text(
-        json.dumps(receipt, indent=2), encoding="utf-8"
-    )
+    (output / "source-delivery.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     print(json.dumps(receipt), flush=True)
 
 

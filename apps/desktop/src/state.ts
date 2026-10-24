@@ -77,6 +77,21 @@ export function friendlyError(error: unknown): string {
         ? error.message
         : "";
   const known: Record<string, string> = {
+    "STORAGE.INTEGRITY_FAILED": "A database failed its integrity check. Open diagnostics to identify the affected database. Preserve it and its journals; repeated restarts will not repair it.",
+    "STORAGE.SCHEMA_MISMATCH": "A database layout differs from its recorded version. Open diagnostics for the affected database; preserve the profile instead of resetting it.",
+    "STORAGE.UNSUPPORTED_SCHEMA": "A database version or migration record is unsupported. Open diagnostics and preserve the profile; do not edit migration checksums.",
+    "DESKTOP.TRAY_UNAVAILABLE": "A tray indicator could not be created. Closing the window will quit ADAM; background mode is unavailable.",
+    "DESKTOP.REQUEST_TIMEOUT": "This operation took too long; the service may still be working. Refresh its status before retrying. A timeout does not mean your data is damaged.",
+    "BACKUP.PATH_DENIED": "A profile file resolves outside the selected data folder. Open Diagnostics; preserve your profile before changing paths.",
+    "MODEL.CONFIGURATION_INVALID": "Saved model settings conflict with this launch configuration. Open Diagnostics; do not delete your profile.",
+    "STORAGE.WAL_INVALID": "A database journal needs inspection. Close ADAM copies and preserve the database and its WAL/SHM files.",
+    "DESKTOP.PROFILE_IN_USE": "Another ADAM service has this profile open. Close the other desktop copy, then reconnect.",
+    "RESOURCE.TELEMETRY_UNAVAILABLE": "Memory or disk readings are unavailable. Refresh Diagnostics before loading a model.",
+    "MODEL.DISCOVERY_CHANGED_RESCAN": "This model file changed or moved. Scan its folder again before approval.",
+    "MODEL.APPROVAL_REQUIRED_OR_CHANGED": "Approve the unchanged local model file before loading it.",
+    "MODEL.ARTIFACT_CHANGED": "The model no longer matches its approved checksum. Rescan and review it before loading.",
+    "MODEL.REVIEW_CONTEXT_LIMIT": "The draft cannot fit a safe second-pass review. Use a shorter question or turn off Careful answer.",
+    "MODEL.LIBRARY_INVALID": "Saved model-library metadata could not be read. It was preserved; ordinary chat can still use the default model.",
     "INTERNET.DISABLED": "Enable Internet access for this login first.",
     "COMPUTER.CANCELLED": "Computer actions were cancelled. Check the window; already dispatched effects may remain.",
     "COMPUTER.UI_CHANGED": "The window changed. Remaining steps stopped. Observe again before reviewing a new plan.",
@@ -207,7 +222,7 @@ export function friendlyError(error: unknown): string {
     "INPUT.INVALID": "Check the message fields and try again.",
   };
   return (
-    known[code] ??
+    (known[code] ? `${known[code]} [${code}]` : undefined) ??
     (/^[A-Z][A-Z0-9_.]{1,99}$/.test(code)
       ? `The operation could not finish (${code}).`
       : "The operation could not finish. Try again.")
