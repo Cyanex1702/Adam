@@ -7,6 +7,51 @@ from adam import APP_VERSION
 from adam.core.config import Settings
 
 GUIDANCE = {
+    "RESOURCE.GPU_TELEMETRY_UNAVAILABLE": (
+        "Available video memory could not be verified for the selected GPU",
+        "Keep CPU selected or check the NVIDIA driver and its memory readings. "
+        "ADAM will not guess which adapter has enough memory.",
+    ),
+    "RESOURCE.VRAM_BUDGET": (
+        "This model and context do not fit the available video memory",
+        "Use CPU, choose a smaller model or context, or free GPU memory. A failed "
+        "device change does not replace the saved selection.",
+    ),
+    "RESOURCE.VRAM_PRESSURE": (
+        "Available video memory is below the safety margin",
+        "Wait for other GPU work to finish or choose CPU. Other apps are never "
+        "closed automatically.",
+    ),
+    "MODEL.GPU_UNAVAILABLE": (
+        "The local inference runtime cannot find a Vulkan GPU",
+        "Keep CPU selected or check the graphics driver and Vulkan runtime. A failed "
+        "device change keeps the saved selection and attempts to restore the previous model.",
+    ),
+    "MODEL.DEVICE_EXTERNAL": (
+        "Another application manages this model server",
+        "Change the device in that application, or select an ADAM-managed model first.",
+    ),
+    "MODEL.LIFECYCLE_BUSY": (
+        "The model is being used or changed",
+        "Wait for loading or the current answer to finish before reloading, switching "
+        "models or changing performance mode. Chat waits for a load automatically. "
+        "The activity counters below identify what is running; restarting is not required.",
+    ),
+    "RESOURCE.QUEUE_TIMEOUT": (
+        "The request waited too long for the model",
+        "Check model activity below. Wait for loading or the current answer to finish, "
+        "then retry. Stop an unwanted answer before changing the model.",
+    ),
+    "MODEL.LOAD_CANCELLED": (
+        "Model loading was cancelled",
+        "Use Retry loading model when ready. Conversations and memory were preserved.",
+    ),
+    "MODEL.TIMEOUT": (
+        "The local model did not make reply progress in time",
+        "Cold CPU prompt processing has a separate first-response wait. Once text starts, "
+        "a stalled reply still times out. Check available RAM and CPU load, use Priority "
+        "if appropriate, or choose a smaller approved model. Completed history is preserved.",
+    ),
     "STORAGE.SCHEMA_MISMATCH": (
         "A database layout does not match its recorded version",
         "Preserve the profile and its journals. Check the database listed below. "
@@ -216,6 +261,7 @@ def report(
                 "disk_free_bytes",
                 "mode",
                 "limits",
+                "gpus",
             )
         },
         "performance_mode": manager.config.mode if manager else settings.compute.mode,
@@ -223,7 +269,12 @@ def report(
             "id": identifier,
             "context_tokens": settings.model.context_limit,
             "output_tokens": settings.model.max_tokens,
+            "first_token_timeout_seconds": settings.model.first_token_timeout_seconds,
+            "stream_idle_timeout_seconds": settings.model.timeout_seconds,
             "lifecycle": manager.state if manager else "RECOVERY_READ_ONLY",
+            "activity": manager.activity() if manager else None,
+            "device": getattr(getattr(manager.delegate, "profile", None), "device", "external")
+            if manager else "unavailable",
             "process": process_status(manager),
         },
         "privacy": (

@@ -76,7 +76,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
         # The login/recovery UI must remain usable while model loading is slow,
         # blocked by resources, or waiting for an external server.
+        startup_reserved = asyncio.Event()
+
         async def watch_model() -> None:
+            # No await between signalling and entering startup's load reservation.
+            # Requests may enter the app only after that reservation has begun.
+            startup_reserved.set()
             await models_controller.startup()
             manager = models_controller.manager
             while True:
@@ -98,6 +103,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                     await manager.health_check()
 
         model_startup = asyncio.create_task(watch_model())
+        await startup_reserved.wait()
         await pool.owner.consolidation.start(config.consolidation_interval_seconds)
         if operations:
             await operations.start()

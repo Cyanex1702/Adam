@@ -115,6 +115,12 @@ class DesktopBoundary:
                     if manager
                     else "RECOVERY.READ_ONLY",
                     "model_status_source": "lifecycle",
+                    "model_lifecycle": manager.state if manager else "RECOVERY_READ_ONLY",
+                    "model_device": getattr(
+                        getattr(manager.delegate, "profile", None), "device", "external"
+                    )
+                    if manager
+                    else "unavailable",
                     "issues": getattr(app.state, "recovery_issues", []),
                 }
             )(scope, receive, send)

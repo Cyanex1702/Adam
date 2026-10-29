@@ -1,5 +1,7 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 
 import httpx
 
@@ -18,7 +20,14 @@ class LlamaCppProvider(ModelProvider):
     def get_capabilities(self) -> ModelCard:
         return ModelCard(
             **self.config.model_dump(
-                exclude={"base_url", "max_tokens", "timeout_seconds", "temperature", "seed"}
+                exclude={
+                    "base_url",
+                    "max_tokens",
+                    "timeout_seconds",
+                    "first_token_timeout_seconds",
+                    "temperature",
+                    "seed",
+                }
             )
         )
 
@@ -85,77 +94,108 @@ class LlamaCppProvider(ModelProvider):
 
     async def stream(self, messages: list[Message], trace_id: TraceId) -> AsyncIterator[str]:
         code = "MODEL.UNAVAILABLE"
+        emitted = False
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.config.first_token_timeout_seconds
         try:
-            async with self._client() as client:
-                async with client.stream(
-                    "POST",
-                    "/v1/chat/completions",
-                    json={
-                        "model": self.config.model_id,
-                        "messages": [m.model_dump() for m in messages],
-                        "stream": True,
-                        "max_tokens": self.config.max_tokens,
-                        "temperature": self.config.temperature,
-                        **({"seed": self.config.seed} if self.config.seed is not None else {}),
-                    },
-                ) as response:
-                    if response.status_code >= 500:
+            async with self._client() as client, AsyncExitStack() as responses:
+                # Bound connection/header wait without holding a timeout scope over yield.
+                async with asyncio.timeout_at(deadline):
+                    response = await responses.enter_async_context(
+                        client.stream(
+                            "POST",
+                            "/v1/chat/completions",
+                            json={
+                                "model": self.config.model_id,
+                                "messages": [m.model_dump() for m in messages],
+                                "stream": True,
+                                "max_tokens": self.config.max_tokens,
+                                "temperature": self.config.temperature,
+                                **(
+                                    {"seed": self.config.seed}
+                                    if self.config.seed is not None
+                                    else {}
+                                ),
+                            },
+                            timeout=httpx.Timeout(
+                                connect=5,
+                                write=10,
+                                pool=5,
+                                read=max(
+                                    self.config.first_token_timeout_seconds,
+                                    self.config.timeout_seconds,
+                                ),
+                            ),
+                        )
+                    )
+                if response.status_code >= 500:
+                    async with asyncio.timeout_at(deadline):
                         body = (await response.aread())[:65536].lower()
-                        if any(
-                            marker in body for marker in [b"out of memory", b"cuda out", b"oom"]
-                        ):
-                            raise AdamError(
-                                ErrorEnvelope(
-                                    code="MODEL.OOM",
-                                    trace_id=trace_id,
-                                    message="Model allocation failed; explicit recovery required.",
-                                )
+                    if any(marker in body for marker in [b"out of memory", b"cuda out", b"oom"]):
+                        raise AdamError(
+                            ErrorEnvelope(
+                                code="MODEL.OOM",
+                                trace_id=trace_id,
+                                message="Model allocation failed; explicit recovery required.",
                             )
-                    response.raise_for_status()
-                    code = "MODEL.PROTOCOL_ERROR"
-                    if "text/event-stream" not in response.headers.get("content-type", ""):
-                        raise ValueError("Expected SSE")
-                    emitted = False
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        data = line[5:].strip()
-                        if data == "[DONE]":
-                            if not emitted:
-                                raise ValueError("No answer")
-                            return
-                        packet = json.loads(data)
-                        if packet.get("error"):
-                            raise ValueError("Runtime error")
-                        choices = packet.get("choices", [])
-                        if not choices:
-                            continue
-                        if choices[0].get("finish_reason") == "length":
-                            raise AdamError(
-                                ErrorEnvelope(
-                                    code="MODEL.RESPONSE_LIMIT",
-                                    message="Token limit reached. Partial response is incomplete.",
-                                    trace_id=trace_id,
-                                    retryable=True,
-                                )
+                        )
+                response.raise_for_status()
+                code = "MODEL.PROTOCOL_ERROR"
+                if "text/event-stream" not in response.headers.get("content-type", ""):
+                    raise ValueError("Expected SSE")
+                lines = response.aiter_lines().__aiter__()
+                while True:
+                    # SSE heartbeats/reasoning fields cannot extend a silent reply forever.
+                    async with asyncio.timeout_at(deadline):
+                        try:
+                            line = await anext(lines)
+                        except StopAsyncIteration:
+                            break
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        if not emitted:
+                            raise ValueError("No answer")
+                        return
+                    packet = json.loads(data)
+                    if packet.get("error"):
+                        raise ValueError("Runtime error")
+                    choices = packet.get("choices", [])
+                    if not choices:
+                        continue
+                    if choices[0].get("finish_reason") == "length":
+                        raise AdamError(
+                            ErrorEnvelope(
+                                code="MODEL.RESPONSE_LIMIT",
+                                message="Token limit reached. Partial response is incomplete.",
+                                trace_id=trace_id,
+                                retryable=True,
                             )
-                        content = choices[0].get("delta", {}).get("content")
-                        # Reasoning and tool-call fields are never forwarded or logged.
-                        if content is not None:
-                            if not isinstance(content, str):
-                                raise ValueError("Invalid token")
-                            if content:
-                                emitted = True
-                                yield content
-                    raise ValueError("Missing completion marker")
+                        )
+                    content = choices[0].get("delta", {}).get("content")
+                    # Reasoning and tool-call fields are never forwarded or logged.
+                    if content is not None:
+                        if not isinstance(content, str):
+                            raise ValueError("Invalid token")
+                        if content:
+                            emitted = True
+                            deadline = loop.time() + self.config.timeout_seconds
+                            yield content
+                raise ValueError("Missing completion marker")
         except AdamError:
             raise
-        except httpx.TimeoutException:
+        except (httpx.TimeoutException, TimeoutError):
             raise AdamError(
                 ErrorEnvelope(
                     code="MODEL.TIMEOUT",
                     trace_id=trace_id,
-                    message="The local model timed out. Try a shorter request.",
+                    message=(
+                        "The local model stalled while replying. This turn was not saved."
+                        if emitted
+                        else "The local model did not produce its first reply in time. "
+                        "This turn was not saved."
+                    ),
                     retryable=True,
                 )
             ) from None

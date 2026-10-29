@@ -1,6 +1,6 @@
 [package]
 name = "adam-desktop"
-version = "0.20.2"
+version = "0.20.4"
 description = "ADAM local desktop workspace"
 edition = "2021"
 rust-version = "1.90"

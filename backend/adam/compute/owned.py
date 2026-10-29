@@ -11,13 +11,15 @@ import psutil  # type: ignore[import-untyped]
 
 from adam.compute.catalog import ModelProfile
 from adam.compute.contracts import ComputeError
-from adam.compute.hardware import assets_root, gpus
+from adam.compute.hardware import assets_root, command, gpus
 from adam.compute.indicator import ModelIndicator
 from adam.compute.process_guard import ChildGuard
 from adam.core.config import ModelConfig
 from adam.models.base import ModelHealth
 from adam.models.llama_cpp import LlamaCppProvider
 from adam.resilience.archive import scoped
+
+LOAD_TIMEOUT_SECONDS = 120.0
 
 
 def model_path(profile: ModelProfile) -> Path:
@@ -102,14 +104,29 @@ class OwnedLlamaProvider(LlamaCppProvider):
             except (psutil.Error, OSError):
                 raise ComputeError("RESOURCE.TELEMETRY_UNAVAILABLE") from None
         if self.profile.device == "vulkan":
+            # nvidia-smi ordering need not match Vulkan ordering. Validate the
+            # exact adapter we pass to llama.cpp before trusting its VRAM budget.
+            listed = await asyncio.to_thread(command, [str(executable), "--list-devices"], 10)
+            adapter = next(
+                (
+                    line.strip()
+                    for line in listed.splitlines()
+                    if line.strip().startswith("Vulkan0:")
+                ),
+                "",
+            )
+            if not adapter:
+                raise ComputeError("MODEL.GPU_UNAVAILABLE")
             devices = gpus()
-            device = devices[0] if devices else {}
+            device = next(
+                (item for item in devices if adapter.startswith("Vulkan0: " + item["name"] + " (")),
+                {},
+            )
             if device.get("vram_total_bytes") is None or device.get("vram_used_bytes") is None:
                 raise ComputeError("RESOURCE.GPU_TELEMETRY_UNAVAILABLE")
-            if (
-                device["vram_total_bytes"] - device["vram_used_bytes"]
-                < weights.stat().st_size + 256 * 1024**2
-            ):
+            if device["vram_total_bytes"] - device[
+                "vram_used_bytes"
+            ] < weights.stat().st_size + max(1024**3, self.config.context_limit * 128 * 1024):
                 raise ComputeError("RESOURCE.VRAM_BUDGET")
         threads = min(2 if self.mode == "eco" else 6, max(1, (os.cpu_count() or 2) - 1))
         arguments = [
@@ -152,6 +169,10 @@ class OwnedLlamaProvider(LlamaCppProvider):
         ]
         if self.profile.device == "cpu" and not self.repack:
             arguments.append("--no-repack")
+        if self.profile.device == "vulkan":
+            # All layers are assigned to the validated discrete GPU. Avoid
+            # retaining a host mapping of the same weights after upload.
+            arguments.extend(["--load-mode", "none"])
         ready = False
         try:
             self.process = subprocess.Popen(
@@ -180,17 +201,23 @@ class OwnedLlamaProvider(LlamaCppProvider):
                 self.mode,
             )
             await asyncio.to_thread(self.indicator.start)
-            for _ in range(120):
-                if self.process is None or self.process.poll() is not None:
-                    raise ComputeError("MODEL.LOAD_FAILED")
-                health = await self.health_check()
-                if self.process is None:
-                    raise ComputeError("MODEL.LOAD_FAILED")
-                if health.status == "HEALTHY":
-                    ready = True
-                    return health
-                await asyncio.sleep(0.5)
-            raise ComputeError("MODEL.LOAD_TIMEOUT")
+            try:
+                # Shader compilation / warmup can be slow on older GPUs. Bound
+                # elapsed time, including hung health requests, rather than the
+                # number of polls (previously about 60s, or much longer on a hang).
+                async with asyncio.timeout(LOAD_TIMEOUT_SECONDS):
+                    while True:
+                        if self.process is None or self.process.poll() is not None:
+                            raise ComputeError("MODEL.LOAD_FAILED")
+                        health = await self.health_check()
+                        if self.process is None:
+                            raise ComputeError("MODEL.LOAD_FAILED")
+                        if health.status == "HEALTHY":
+                            ready = True
+                            return health
+                        await asyncio.sleep(0.5)
+            except TimeoutError:
+                raise ComputeError("MODEL.LOAD_TIMEOUT") from None
         except OSError:
             raise ComputeError("MODEL.LOAD_FAILED") from None
         finally:

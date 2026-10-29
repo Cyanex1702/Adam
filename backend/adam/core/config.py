@@ -132,6 +132,7 @@ class ModelConfig(Contract):
     context_limit: int = Field(default=8192, ge=512)
     max_tokens: int = Field(default=1024, ge=1, le=32768)
     timeout_seconds: float = Field(default=120, gt=0, le=600)
+    first_token_timeout_seconds: float = Field(default=300, gt=0, le=600)
     temperature: float = Field(default=0.6, ge=0, le=2)
     seed: int | None = None
     tools: bool = False

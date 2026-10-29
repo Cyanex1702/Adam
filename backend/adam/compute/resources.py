@@ -93,6 +93,11 @@ class ManagedProvider(ModelProvider):
         self.state = "AVAILABLE"
         self.detached = False
         self.operation_active = False
+        self.operation_idle = asyncio.Event()
+        self.operation_idle.set()
+        self.admission_lock = asyncio.Lock()
+        self.admission_waiters = 0
+        self.operation_started: float | None = None
         self.turns = 0
         self.failures = 0
         self.error: str | None = None
@@ -197,22 +202,52 @@ class ManagedProvider(ModelProvider):
 
     @asynccontextmanager
     async def _active_turn(self) -> AsyncIterator[None]:
-        if self.operation_active:
-            raise ComputeError("MODEL.LIFECYCLE_BUSY")
-        if self.error == "RESOURCE.PRESSURE" and time.monotonic() >= self.retry_at:
-            from adam.compute.owned import OwnedLlamaProvider
+        if self.admission_waiters >= self.config.queue_limit:
+            raise ComputeError("RESOURCE.QUEUE_FULL")
+        self.admission_waiters += 1
+        try:
+            async with asyncio.timeout(self.config.queue_timeout_seconds):
+                # Serialize recovery before reserving a turn. Waiting requests do
+                # not count as active inference and cannot block the load they need.
+                async with self.admission_lock:
+                    await self.operation_idle.wait()
+                    if self.error == "RESOURCE.PRESSURE" and time.monotonic() >= self.retry_at:
+                        from adam.compute.owned import OwnedLlamaProvider
 
-            if isinstance(self.delegate, OwnedLlamaProvider):
-                self.error = None
-                if self.observe()["mode"] == "DEGRADED":
-                    self.error = "RESOURCE.PRESSURE"
-                else:
-                    try:
-                        await self.load()
-                    except ComputeError as error:
-                        self.error, self.state = error.code, "ERROR"
-                        self.retry_at = time.monotonic() + self.config.cooldown_seconds
-        self.turns += 1
+                        if isinstance(self.delegate, OwnedLlamaProvider) and not self.turns:
+                            self.error = None
+                            try:
+                                recovered = self.observe()["mode"] != "DEGRADED"
+                            finally:
+                                self.error = "RESOURCE.PRESSURE"
+                            if recovered:
+                                # A manual reload can begin while recovery waits
+                                # for background work. Recheck both reservations
+                                # after every await, and share a completed reload.
+                                while (
+                                    self.operation_active
+                                    or self.scheduler.active
+                                    or self.scheduler.waiters
+                                ):
+                                    await self.operation_idle.wait()
+                                    async with self.scheduler.condition:
+                                        await self.scheduler.condition.wait_for(
+                                            lambda: self.scheduler.active is None
+                                            and not self.scheduler.waiters
+                                        )
+                                if self.error == "RESOURCE.PRESSURE":
+                                    try:
+                                        await self.load()
+                                    except ComputeError as error:
+                                        self.error, self.state = error.code, "ERROR"
+                                        self.retry_at = (
+                                            time.monotonic() + self.config.cooldown_seconds
+                                        )
+                    self.turns += 1
+        except TimeoutError:
+            raise ComputeError("RESOURCE.QUEUE_TIMEOUT") from None
+        finally:
+            self.admission_waiters -= 1
         try:
             yield
         finally:
@@ -223,16 +258,36 @@ class ManagedProvider(ModelProvider):
         if self.operation_active or self.turns or self.scheduler.active or self.scheduler.waiters:
             raise ComputeError("MODEL.LIFECYCLE_BUSY")
         self.operation_active = True
+        self.operation_started = time.monotonic()
+        self.operation_idle.clear()
         try:
             yield
         finally:
             self.operation_active = False
+            self.operation_started = None
+            self.operation_idle.set()
+
+    def activity(self) -> dict[str, Any]:
+        return {
+            "operation_active": self.operation_active,
+            "operation_seconds": round(time.monotonic() - self.operation_started, 1)
+            if self.operation_started is not None
+            else None,
+            "active_turns": self.turns,
+            "waiting_for_model": self.admission_waiters,
+            "active_priority": self.scheduler.active,
+            "queued_inference": len(self.scheduler.waiters),
+        }
 
     async def health_check(self) -> ModelHealth:
         # Admission failures are transient, not a permanent provider-error latch.
         if self.error == "RESOURCE.PRESSURE":
+            from adam.compute.owned import OwnedLlamaProvider
+
             self.error = None
-            if self.observe()["mode"] == "DEGRADED":
+            if self.observe()["mode"] == "DEGRADED" or isinstance(
+                self.delegate, OwnedLlamaProvider
+            ):
                 self.error = "RESOURCE.PRESSURE"
         if self.error or self.detached:
             return ModelHealth(
@@ -251,36 +306,41 @@ class ManagedProvider(ModelProvider):
 
     async def load(self) -> ModelHealth:
         async with self.operation():
-            if time.monotonic() < self.retry_at:
-                raise ComputeError("RESOURCE.COOLDOWN")
-            # Clear a previous latch only after memory/storage admission and attachment succeed.
-            old_error = self.error
-            self.error = None
-            if self.observe()["mode"] == "DEGRADED":
-                self.error = old_error
-                raise ComputeError("RESOURCE.PRESSURE")
-            self.state = "LOADING"
-            try:
-                health = await self.delegate.load()
-            except (MemoryError, OSError, ValueError) as error:
-                self.error = (
-                    error.code
-                    if isinstance(error, ComputeError)
-                    else (
-                        "RESOURCE.OOM" if isinstance(error, MemoryError) else "RESOURCE.LOAD_FAILED"
-                    )
-                )
-                self.state = "ERROR"
-                self.retry_at = time.monotonic() + self.config.cooldown_seconds
-                raise ComputeError(self.error) from None
-            self.last_health = health
-            if health.status != "HEALTHY":
-                self.error, self.state = health.reason or "MODEL.UNAVAILABLE", "ERROR"
-                self.retry_at = time.monotonic() + self.config.cooldown_seconds
-            else:
-                self.detached, self.error, self.failures = False, None, 0
-                self.state = "LOADED"
-            return health
+            return await self._load()
+
+    async def _load(self) -> ModelHealth:
+        """Load within an already reserved lifecycle operation."""
+        if time.monotonic() < self.retry_at:
+            raise ComputeError("RESOURCE.COOLDOWN")
+        old_error = self.error
+        self.error = None
+        if self.observe()["mode"] == "DEGRADED":
+            self.error = old_error
+            raise ComputeError("RESOURCE.PRESSURE")
+        self.state = "LOADING"
+        try:
+            health = await self.delegate.load()
+        except asyncio.CancelledError:
+            self.detached, self.error, self.state = True, "MODEL.LOAD_CANCELLED", "ERROR"
+            self.retry_at = 0.0
+            raise
+        except (MemoryError, OSError, ValueError) as error:
+            self.error = (
+                error.code
+                if isinstance(error, ComputeError)
+                else ("RESOURCE.OOM" if isinstance(error, MemoryError) else "RESOURCE.LOAD_FAILED")
+            )
+            self.state = "ERROR"
+            self.retry_at = time.monotonic() + self.config.cooldown_seconds
+            raise ComputeError(self.error) from None
+        self.last_health = health
+        if health.status != "HEALTHY":
+            self.error, self.state = health.reason or "MODEL.UNAVAILABLE", "ERROR"
+            self.retry_at = time.monotonic() + self.config.cooldown_seconds
+        else:
+            self.detached, self.error, self.failures = False, None, 0
+            self.state = "LOADED"
+        return health
 
     async def set_mode(self, mode: Literal["eco", "priority"]) -> dict[str, object]:
         from adam.compute.catalog import publish
@@ -301,8 +361,8 @@ class ManagedProvider(ModelProvider):
                 self.config.mode = mode
                 if isinstance(self.delegate, OwnedLlamaProvider):
                     self.delegate.mode = mode
-            if reload:
-                await self.load()
+                if reload:
+                    await self._load()
         return {
             "mode": mode,
             "model_reloaded": reload,

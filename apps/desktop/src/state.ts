@@ -77,6 +77,15 @@ export function friendlyError(error: unknown): string {
         ? error.message
         : "";
   const known: Record<string, string> = {
+    "MODEL.LOAD_TIMEOUT": "Model loading or GPU warmup exceeded two minutes. The owned model was stopped. Retry when the PC is less busy, select a smaller model, or use CPU.",
+    "RESOURCE.GPU_TELEMETRY_UNAVAILABLE": "ADAM could not verify available memory on the selected GPU. Check the NVIDIA driver or keep CPU selected. Your saved device has not changed.",
+    "RESOURCE.VRAM_BUDGET": "This model and its context do not fit the available video memory. Choose CPU or a smaller model, or free GPU memory. Your saved device has not changed.",
+    "RESOURCE.VRAM_PRESSURE": "Available video memory is too low. Wait for other GPU work to finish or choose CPU in Diagnostics.",
+    "MODEL.GPU_UNAVAILABLE": "No usable Vulkan GPU was found by the model runtime. Check the graphics driver or keep CPU selected. Your saved device has not changed.",
+    "MODEL.DEVICE_EXTERNAL": "This model server is managed by another application. Change its CPU/GPU settings there, or select an ADAM-managed model.",
+    "MODEL.LIFECYCLE_BUSY": "The model is loading, changing settings, or answering another request. Wait for it to finish, or stop the current answer before changing models. Diagnostics shows its activity; restarting is not required.",
+    "RESOURCE.QUEUE_TIMEOUT": "Your request waited too long for the model. Check loading and active requests in Diagnostics, then retry when ready.",
+    "MODEL.LOAD_CANCELLED": "Model loading was cancelled. Open Diagnostics and choose Retry loading model when ready.",
     "STORAGE.INTEGRITY_FAILED": "A database failed its integrity check. Open diagnostics to identify the affected database. Preserve it and its journals; repeated restarts will not repair it.",
     "STORAGE.SCHEMA_MISMATCH": "A database layout differs from its recorded version. Open diagnostics for the affected database; preserve the profile instead of resetting it.",
     "STORAGE.UNSUPPORTED_SCHEMA": "A database version or migration record is unsupported. Open diagnostics and preserve the profile; do not edit migration checksums.",
@@ -202,7 +211,7 @@ export function friendlyError(error: unknown): string {
     "MODEL.UNAVAILABLE":
       "The model is unavailable. Check its status in settings.",
     "MODEL.TIMEOUT":
-      "The model took too long. Your last turn was not saved; try a shorter request.",
+      "The local model did not make reply progress in time. This reply may be incomplete. Open Diagnostics to check CPU load, available RAM and model timeouts.",
     "SESSION.BUSY":
       "A response is already in progress. Stop it before starting another.",
     "CONTEXT.OVERFLOW":

@@ -19,5 +19,6 @@ languages = ["en", "ur-Latn"]
 context_limit = 2048
 max_tokens = 384
 timeout_seconds = 180
+first_token_timeout_seconds = 300
 temperature = 0.7
 seed = 42

@@ -43,6 +43,8 @@ type Service = {
   recovery: boolean;
   model_status: string;
   model_error: string | null;
+  model_lifecycle?: string;
+  model_device?: string;
   release: string;
   issues?: string[];
 };
@@ -79,6 +81,8 @@ function Icon({ kind }: { kind: string }) {
     settings:
       "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2",
     developer: "m8 5-6 7 6 7m8-14 6 7-6 7m-3-16-2 18",
+    models: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+    clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4v5l3 2",
   };
   return (
     <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -99,6 +103,7 @@ export function App() {
     [service, setService] = useState<Service | null>(null),
     [loading, setLoading] = useState(true);
   const [background, setBackground] = useState(false), [trayAvailable, setTrayAvailable] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   useEffect(() => {
     void bridge.backgroundStatus().then(value => {
       setBackground(value.enabled); setTrayAvailable(value.tray_available);
@@ -591,7 +596,7 @@ export function App() {
           onClick={newConversation}
           disabled={!auth || busy}
         >
-          <span>＋</span> New conversation <kbd>NEW</kbd>
+          <span>＋</span> New conversation
         </button>
         <nav aria-label="Workspace">
           <button
@@ -615,12 +620,13 @@ export function App() {
             onClick={() => openView("operations")}
             disabled={auth?.mode !== "owner" || busy}
           >
-            <Icon kind="memory" />
+            <Icon kind="clock" />
             Reminders{auth?.mode === "owner" && <OperationsBadge />}
           </button>
+          <button className={view === "models" ? "selected" : ""} onClick={() => openView("models")} disabled={auth?.mode !== "owner" || busy} title="Discover, approve and switch local GGUF models"><Icon kind="models" />Model library</button>
+          <details className="advanced-navigation"><summary>Tools &amp; more</summary>
           <button className={view === "personal" ? "selected" : ""} onClick={() => openView("personal")} disabled={!auth || auth.mode === "guest" || busy} title="Relationships, timelines and goals linked to your memories">Personal intelligence</button>
           <button className={view === "distribution" ? "selected" : ""} onClick={() => openView("distribution")} disabled={auth?.mode !== "owner" || busy} title="Install a model, manage backups and restore your workspace">Setup and recovery</button>
-          <details className="advanced-navigation"><summary>More tools &amp; experiments</summary>
           <button className={view === "internet" ? "selected" : ""}
             onClick={() => openView("internet")} disabled={auth?.mode !== "owner" || busy}>
             <Icon kind="chat" /> Internet
@@ -635,7 +641,7 @@ export function App() {
           </details>
         </nav>
         <div className="recent-label">
-          RECENT CONVERSATIONS <span>{sessions.length || "—"}</span>
+          Recent chats <span>{sessions.length || "0"}</span>
         </div>
         <div className="session-list">
           {sessions.map((item, index) => (
@@ -668,7 +674,6 @@ export function App() {
           )}
         </div>
         <nav className="bottom-nav" aria-label="Application">
-          <button className={view === "models" ? "selected" : ""} onClick={() => openView("models")} disabled={auth?.mode !== "owner" || busy} title="Discover, approve and switch local GGUF models">Model library</button>
           <button className={view === "diagnostics" ? "selected" : ""} onClick={() => openView("diagnostics")} disabled={busy} title="Check resources, troubleshoot startup, and choose Eco or Priority mode">
             <Icon kind="settings" /> Diagnostics
           </button>
@@ -720,10 +725,14 @@ export function App() {
       <div className="workspace">
         <header>
           <div>
-            <span className="eyebrow">YOUR PRIVATE ASSISTANT</span>
+            <span className="eyebrow">ADAM WORKSPACE</span>
             <h1>{auth ? title : "Welcome to ADAM"}</h1>
           </div>
-          <div
+          <div className="header-actions">
+          <button
+            type="button"
+            onClick={() => setView("diagnostics")}
+            title="Open diagnostics and model settings"
             className={
               "connection " +
               (service?.model_status === "HEALTHY" ? "online" : "")
@@ -736,8 +745,11 @@ export function App() {
                 ? "Service offline"
                 : service.model_status === "HEALTHY"
                   ? "Local model ready"
-                  : "Model unavailable"}
+                  : service.model_lifecycle === "LOADING" ? "Loading model…" : "Model needs attention"}
+            {service?.model_device === "vulkan" ? " · GPU" : service?.model_device === "cpu" ? " · CPU" : ""}
             {background && " · background enabled"}
+          </button>
+          <button className={"activity-toggle" + (activityOpen ? " active" : "")} onClick={() => setActivityOpen(value => !value)} aria-expanded={activityOpen} aria-controls="assistant-activity">Activity</button>
           </div>
         </header>
         {notice && (
@@ -748,7 +760,7 @@ export function App() {
             </button>
           </div>
         )}
-        <div className="content-grid">
+        <div className={"content-grid" + (activityOpen ? " with-activity" : "")}>
           <main>
             {view === "diagnostics" ? (
               <DiagnosticsPanel owner={auth?.mode === "owner"} reconnect={() => void boot(true)} back={() => setView("chat")} serviceError={lastServiceCode} issue={issue} />
@@ -756,20 +768,20 @@ export function App() {
               <ModelLibraryPanel issue={issue} />
             ) : !auth ? (
               <section className="unlock">
-                <span className="section-number">01 / LOCAL BY DESIGN</span>
+                <span className="section-number">PRIVATE BY DEFAULT</span>
                 <h2>
                   {loading
                     ? "Opening your workspace…"
                     : service?.recovery
                       ? "Your data needs attention"
                       : service?.configured
-                        ? "Your workspace, your key."
+                        ? "Welcome back."
                         : "A private place to begin."}
                 </h2>
                 <p>
                   {service?.recovery
                     ? "ADAM found a storage or configuration problem and opened read-only recovery. Your data has not been changed. Use the local recovery guide before continuing."
-                    : "Conversations and memory stay on your PC. Unlock your owner workspace, or explore a separate fictional demo."}
+                    : "Unlock your local assistant. Your saved conversations and notes are stored on this PC."}
                 </p>
                 {!loading && service && !service.recovery && (
                   <>
@@ -853,22 +865,19 @@ export function App() {
                   {!history.length && !pending.length ? (
                     <div className="welcome">
                       <span className="section-number">
-                        A LOCAL MIND. A FAMILIAR SPACE.
+                        YOUR LOCAL WORKSPACE
                       </span>
                       <h2>
-                        A little space
-                        <br />
-                        to think.
+                        What are we working on?
                       </h2>
                       <p>
-                        Ask a question, work through an idea, or keep
-                        <br className="wide-only" /> something useful for later.
+                        Ask a question, work through an idea, or pick up where you left off.
                       </p>
-                      <p className="getting-started">New here? Chat asks your local model. Saved memory stores things you explicitly want to retain. Diagnostics explains loading and resource problems. Other tools show a review before supported actions.</p>
+                      <div className="welcome-model"><span className={service?.model_status === "HEALTHY" ? "ready-dot" : "waiting-dot"} /><span>{model?.display_name ?? "Your local model"}</span><span className="device-label">{service?.model_device === "vulkan" ? "GPU · Vulkan" : service?.model_device === "cpu" ? "CPU" : "Local server"}</span></div>
                       <div className="suggestions">
                         {[
                           [
-                            "Explore capabilities",
+                            "What can ADAM do?",
                             "What can you do right now?",
                           ],
                           ["Save a preference", "/remember preference "],
@@ -944,7 +953,7 @@ export function App() {
                   )}
                 </div>
                 <form className="composer" onSubmit={submit}>
-                  {busy && !pending.at(-1)?.text && <p className="preparing-answer" role="status">{careful ? "Checking the stated facts, then preparing an answer…" : "Preparing your local answer…"} Model loading can take a moment. You can stop at any time.</p>}
+                  {busy && !pending.at(-1)?.text && <p className="preparing-answer" role="status">{careful ? "Checking the stated facts, then preparing an answer…" : "Preparing your local answer…"} The first CPU reply can take several minutes while the model processes context. You can stop at any time.</p>}
                   <label className="sr-only" htmlFor="message">
                     Message ADAM
                   </label>
@@ -1000,6 +1009,8 @@ export function App() {
                     )}
                   </div>
                 </form>
+                <details className="voice-drawer" onToggle={event => { if (!event.currentTarget.open) voice.current?.reset(); }}>
+                <summary>Local voice <span>Record, listen and manage speech settings</span></summary>
                 <VoicePanel
                   sessionId={sessionId}
                   ref={voice}
@@ -1019,6 +1030,7 @@ export function App() {
                       );
                   }}
                 />
+                </details>
                 <p className="chat-footnote">
                   ADAM can be wrong. Verify important answers. Never paste
                   passwords or credentials.
@@ -1267,7 +1279,7 @@ export function App() {
               </section>
             )}
           </main>
-          <aside className="right-panel">
+          {activityOpen && <aside className="right-panel" id="assistant-activity">
             <Avatar
               state={avatarState}
               preferences={preferences}
@@ -1288,7 +1300,7 @@ export function App() {
               <span>ADAM / {service?.release ?? "local"}</span>
               <span>LOCAL VOICE WORKSPACE</span>
             </div>
-          </aside>
+          </aside>}
         </div>
       </div>
     </div>

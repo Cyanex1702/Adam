@@ -94,3 +94,13 @@ it("does not display raw error content or secrets", () => {
   );
   expect(friendlyError("RESOURCE.PRESSURE")).toContain("free resources");
 });
+it("explains lifecycle contention and distinguishes GPU setup failures", () => {
+  expect(friendlyError("MODEL.LIFECYCLE_BUSY")).toContain("Diagnostics");
+  expect(friendlyError("MODEL.LIFECYCLE_BUSY")).toContain("restarting is not required");
+  expect(friendlyError("MODEL.GPU_UNAVAILABLE")).toContain("Vulkan");
+  expect(friendlyError("RESOURCE.VRAM_BUDGET")).toContain("video memory");
+  expect(friendlyError("RESOURCE.GPU_TELEMETRY_UNAVAILABLE")).toContain("NVIDIA driver");
+  expect(friendlyError("MODEL.LOAD_TIMEOUT")).toContain("two minutes");
+  expect(friendlyError("MODEL.DEVICE_EXTERNAL")).toContain("another application");
+  expect(friendlyError("RESOURCE.QUEUE_TIMEOUT")).toContain("waited too long");
+});

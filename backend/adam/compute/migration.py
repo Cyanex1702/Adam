@@ -5,7 +5,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, closing, contextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import portalocker
@@ -178,6 +178,48 @@ class ModelController:
             await self.manager.load()
         except ComputeError as error:
             self.manager.state, self.manager.error = "ERROR", error.code
+
+    async def set_device(self, device: Literal["cpu", "vulkan"]) -> dict[str, Any]:
+        """Persist only a successfully loaded device; restore the old one on failure."""
+        manager = self.manager
+        async with self.mutation():
+            previous = manager.delegate
+            if not isinstance(previous, OwnedLlamaProvider):
+                raise ComputeError("MODEL.DEVICE_EXTERNAL")
+            if self.pending_previous:
+                raise ComputeError("MODEL.LIFECYCLE_BUSY")
+            if previous.profile.device == device and not manager.detached and not manager.error:
+                return {"device": device, "status": "HEALTHY", "changed": False}
+            prior_deadline = manager.retry_at
+            was_running = previous.process is not None and previous.process.poll() is None
+            profile = previous.profile.model_copy(update={"device": device})
+            target = self.factory(profile)
+            await previous.unload()
+            manager.delegate, manager.detached = target, True
+            manager.gpu_required = device == "vulkan"
+            manager.retry_at = 0.0
+            try:
+                health = await manager._load()
+                if health.status != "HEALTHY":
+                    raise ComputeError(health.reason or "MODEL.UNAVAILABLE")
+                check_authority()
+                updated = self.catalog.model_copy(deep=True)
+                updated.profiles[self.active_id] = profile
+                publish(self.root, "config/model-catalog.json", updated)
+                self.catalog = updated
+            except (ValueError, OSError, MemoryError, asyncio.CancelledError) as error:
+                await target.unload()
+                manager.delegate, manager.detached = previous, True
+                manager.gpu_required = previous.profile.device == "vulkan"
+                manager.retry_at = prior_deadline
+                manager.error, manager.state = "MODEL.LOAD_CANCELLED", "ERROR"
+                if was_running and not isinstance(error, asyncio.CancelledError):
+                    try:
+                        await manager._load()
+                    except (ValueError, OSError, MemoryError):
+                        pass
+                raise
+        return {"device": device, "status": "HEALTHY", "changed": True}
 
     @contextmanager
     def disk_lock(self) -> Iterator[None]:

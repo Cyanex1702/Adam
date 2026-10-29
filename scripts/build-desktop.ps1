@@ -17,6 +17,8 @@ foreach ($noticeName in @('LICENSE', 'THIRD_PARTY.md')) {
 $cleanArguments = if ($Incremental) { @() } else { @('--clean') }
 & $pythonExe -m PyInstaller @cleanArguments --noconfirm --distpath $resources --workpath (Join-Path $buildRoot 'pyinstaller') scripts/desktop-service.spec
 if ($LASTEXITCODE -ne 0) { throw 'Backend packaging failed.' }
+& $pythonExe (Join-Path $PSScriptRoot 'verify-frozen-backend.py')
+if ($LASTEXITCODE -ne 0) { throw 'Frozen backend differs from source. Rebuild without -Incremental.' }
 . (Join-Path $PSScriptRoot 'desktop-build-env.ps1')
 Set-Location -LiteralPath (Join-Path $projectRoot 'apps\desktop')
 & npm.cmd ci

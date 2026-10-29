@@ -20,6 +20,10 @@ class Performance(Contract):
     mode: Literal["eco", "priority"]
 
 
+class Device(Contract):
+    device: Literal["cpu", "vulkan"]
+
+
 class Scan(Contract):
     folder: str | None = Field(default=None, max_length=1024)
 
@@ -76,6 +80,11 @@ def install_compute(app: FastAPI, manager: ManagedProvider) -> Any:
         owner(request)
         with controller.disk_lock():
             return (await manager.load()).model_dump()
+
+    @app.post("/model/device")
+    async def configure_device(request: Request, value: Device) -> dict[str, Any]:
+        owner(request)
+        return await controller.set_device(value.device)
 
     @app.get("/models/library")
     async def library(request: Request) -> dict[str, Any]:

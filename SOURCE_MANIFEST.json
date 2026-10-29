@@ -1,6 +1,6 @@
 {
-  "release": "0.20.2",
-  "source_commit": "88f955fa6cd6b3ce23c7716b7a138822544754d8",
+  "release": "0.20.4",
+  "source_commit": "3b92e522d70f37d4853673bb6556862bcb3902ed",
   "files": [
     {
       "path": ".env.example",
@@ -44,8 +44,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 12666,
-      "sha256": "2925b383fec41f6a0950fd6909cd9d16297e83735df66786f3014629e4f91cad"
+      "bytes": 12941,
+      "sha256": "2505e9f00a5a2bf3b0e7a195868902e729e4b6e19fecba9bc4f196226813aaf6"
     },
     {
       "path": "RUN_ADAM.bat",
@@ -69,8 +69,8 @@
     },
     {
       "path": "adam.compact.toml",
-      "bytes": 489,
-      "sha256": "92d62b10d3d1a7b834d09666135a301ee89d2be5ca4bf320e6167924ac460140"
+      "bytes": 523,
+      "sha256": "aabc06a08b76460e85c19d919ac7010c330defb97ee20b8c7dafb093bb7db18d"
     },
     {
       "path": "adam.example.toml",
@@ -79,8 +79,8 @@
     },
     {
       "path": "adam.portable.toml",
-      "bytes": 506,
-      "sha256": "2e5a8b1d089c00b5b3b16148169c85ad5512e55524b8264985c74121a24fc7cf"
+      "bytes": 540,
+      "sha256": "6dca0e792d020691e1530ba8d8c6c6264594a6e8e8e2992b608596760c0b8d3f"
     },
     {
       "path": "adam.uncensored.toml",
@@ -95,12 +95,12 @@
     {
       "path": "apps/desktop/package-lock.json",
       "bytes": 54936,
-      "sha256": "de143f2bbc65a2b795b9660403507cdbcb138d1b2efd05c646ce6403ca66ca83"
+      "sha256": "793c813470774af6814bf849da501ca0b387dd75f106b442e877550e78049317"
     },
     {
       "path": "apps/desktop/package.json",
       "bytes": 682,
-      "sha256": "a78a9d94e1daa8e3d82e80e6f3c1fa38c6d94adc600bbeba948c561381c04e9c"
+      "sha256": "99a3a1b01187f79ce4a9e918d2321ef46bc6e901cf3220a65f822ac6482a6a6f"
     },
     {
       "path": "apps/desktop/requirements-build.txt",
@@ -110,12 +110,12 @@
     {
       "path": "apps/desktop/src-tauri/Cargo.lock",
       "bytes": 122143,
-      "sha256": "0e25801367a31d4b289a86ff324f02db143533f045f37e9d573a857fc5387376"
+      "sha256": "327bb885a6e0752881f681d33a1a615271a3a0392896cbd33ace6cd2248f089e"
     },
     {
       "path": "apps/desktop/src-tauri/Cargo.toml",
       "bytes": 953,
-      "sha256": "f6b70616167980cdd5e84566db84f49f116ae849cac89efa9fb63c0765fd7776"
+      "sha256": "89a68f2f80c21059049dae3523e214bf75aff75a192ebe7c2571b2ca812a7a0a"
     },
     {
       "path": "apps/desktop/src-tauri/build.rs",
@@ -144,13 +144,18 @@
     },
     {
       "path": "apps/desktop/src-tauri/src/main.rs",
-      "bytes": 30792,
-      "sha256": "983dd5fe0aa3d57080650683b214b2aa492f2450b1895332984ae0cb8e3bf791"
+      "bytes": 31559,
+      "sha256": "922b0286e2ee93ef133210d7a1661660e6b746e6ac117e83ce68f46251307490"
+    },
+    {
+      "path": "apps/desktop/src-tauri/src/reply_clock.rs",
+      "bytes": 2308,
+      "sha256": "4e66d179f421f8a65eeeed7cb4aab543eca63bd283e5b72c81a14427728429ef"
     },
     {
       "path": "apps/desktop/src-tauri/tauri.conf.json",
-      "bytes": 1576,
-      "sha256": "c598557134020fe414ec682a99325ee0d44a289389f95523e852a5224f278721"
+      "bytes": 1608,
+      "sha256": "a0408a97667c74d57ab68196b6ff789f6ee3f62212c0aa1ff7510c55d44d901c"
     },
     {
       "path": "apps/desktop/src-tauri/windows/hooks.nsh",
@@ -159,8 +164,8 @@
     },
     {
       "path": "apps/desktop/src/App.tsx",
-      "bytes": 50187,
-      "sha256": "92808e623542db95d0ee25b8a8e4e052788ebe5cef68d6a2a51548ec113dae97"
+      "bytes": 51314,
+      "sha256": "e919983c7561dc17aacfcae2596b1b309a6b777c1219020bedb3a6a17f56b19a"
     },
     {
       "path": "apps/desktop/src/Avatar.tsx",
@@ -184,8 +189,8 @@
     },
     {
       "path": "apps/desktop/src/DiagnosticsPanel.tsx",
-      "bytes": 6950,
-      "sha256": "00f6c328e2101855f099860f83c051b5a941151b4ebc0242589df5f859050acc"
+      "bytes": 9484,
+      "sha256": "7b0ede093a6710276ce0f60dd20335534e9b0affec50ed888c0abda4018bb5f4"
     },
     {
       "path": "apps/desktop/src/DistributionPanel.tsx",
@@ -254,18 +259,18 @@
     },
     {
       "path": "apps/desktop/src/main.tsx",
-      "bytes": 160,
-      "sha256": "c60c57f0d942df977629f34b8e0664546f82ab2e2403cfe9fefc181c6fd9e039"
+      "bytes": 186,
+      "sha256": "089a6e471b5861dc97d3ea3b991911464a6f910195b979f0d9f743d92e61d8a5"
     },
     {
       "path": "apps/desktop/src/state.test.ts",
-      "bytes": 2978,
-      "sha256": "58068e4f977f6c9ee05fa710479312faaae75a70098f2b6702820a628bff5c5c"
+      "bytes": 3696,
+      "sha256": "64ce60a7c30f946c0016b7b168b1a37422df06e1b6510786942fc58a079476bb"
     },
     {
       "path": "apps/desktop/src/state.ts",
-      "bytes": 15798,
-      "sha256": "fb665c7386bdb93a672df94a24d3bfca50796a396f5e4385d4d31e4df7d0d80c"
+      "bytes": 17377,
+      "sha256": "2fd0109b138e3e3e1bfcf2b35b5ea34153f6a6326e093617c4013424d9314469"
     },
     {
       "path": "apps/desktop/src/style.css",
@@ -293,6 +298,11 @@
       "sha256": "d8d7d594a7be7208b8c0da6e8c1e4b7596d1fffe69130a9fa29b9c0492693216"
     },
     {
+      "path": "apps/desktop/src/workspace.css",
+      "bytes": 12126,
+      "sha256": "df7dcca0d33152283d422fa520ab383db55b5c13ba339812d06d581279641192"
+    },
+    {
       "path": "apps/desktop/tsconfig.json",
       "bytes": 396,
       "sha256": "490daff4ddac08bba01939623d6f4bbe890a75c25884b3b85b96be8b8ff9452b"
@@ -305,7 +315,7 @@
     {
       "path": "backend/adam/__init__.py",
       "bytes": 113,
-      "sha256": "4d4da3271c0100ba8938611b7ceb748c8b06e87af399d178523ee234eeb4e8d4"
+      "sha256": "14bbe88d9085eb8adf56e5e5da64aae61cc968822ac320801ad7e80f2adae298"
     },
     {
       "path": "backend/adam/api/__init__.py",
@@ -314,8 +324,8 @@
     },
     {
       "path": "backend/adam/api/app.py",
-      "bytes": 24282,
-      "sha256": "3ffd54c1f7e45f221bbbb5cf24085d2c44835fd2faeda811538e3ae0dbfcf0b8"
+      "bytes": 24562,
+      "sha256": "44a158e0322defda204333209c2fb11dfb6ff0aeef7e8b9a13e73590089294c8"
     },
     {
       "path": "backend/adam/cli.py",
@@ -329,8 +339,8 @@
     },
     {
       "path": "backend/adam/compute/api.py",
-      "bytes": 6322,
-      "sha256": "9b1a691aa9d6089891a445313222e19b8b91c06ea0631b7c9c0bc09db5a1c341"
+      "bytes": 6580,
+      "sha256": "9d893903da6b1c26b55f136bc4a624ef1e0ed012e9d888de244261b47a3da59e"
     },
     {
       "path": "backend/adam/compute/catalog.py",
@@ -349,8 +359,8 @@
     },
     {
       "path": "backend/adam/compute/diagnostics.py",
-      "bytes": 10316,
-      "sha256": "aa8c61407d037061a0d5983ae364d25abca3f1996045a7a2296ed2320f884292"
+      "bytes": 13107,
+      "sha256": "914f2aaab943d6946dbe9147fdecaad844783d0816514f71db2f6a0bbfb024c9"
     },
     {
       "path": "backend/adam/compute/hardware.py",
@@ -369,13 +379,13 @@
     },
     {
       "path": "backend/adam/compute/migration.py",
-      "bytes": 21637,
-      "sha256": "5f33fa35e7f883ee242494e40b05d6f6d6398d5fdf92fc119638e65f5e3c1061"
+      "bytes": 23958,
+      "sha256": "f2b12e8e55b46a4dcad1a44602971fdf3fa051181004596264b9d950874bacd1"
     },
     {
       "path": "backend/adam/compute/owned.py",
-      "bytes": 8378,
-      "sha256": "8c47b53f13866b98a24e643712a41ff1df9623abee0f77266f62548ba9eebaa7"
+      "bytes": 9826,
+      "sha256": "d9e984c992e9a7ddb623f8aa8ddbc7fea9d27f3e9c4081530dd33cfc5488e979"
     },
     {
       "path": "backend/adam/compute/process_guard.py",
@@ -384,8 +394,8 @@
     },
     {
       "path": "backend/adam/compute/resources.py",
-      "bytes": 16666,
-      "sha256": "8932309b8843a6dfb0b60b37a13c6b18b05719467d3ee99b7e50e755e2e2a0dc"
+      "bytes": 19764,
+      "sha256": "71a7ee41f7254e57ef69b229e5d32cc7ca0555e2982e55231f7b93e83bc5d29d"
     },
     {
       "path": "backend/adam/compute/terminal.py",
@@ -419,8 +429,8 @@
     },
     {
       "path": "backend/adam/core/config.py",
-      "bytes": 11537,
-      "sha256": "7ad0e02077794191ccb9648d11ea2ca44f844d56b2a6c907d619ae5c548e35cb"
+      "bytes": 11611,
+      "sha256": "b1af3032df4931ef817a571c4aa5ca6fa93e7b2900cf5392e18a45f1580609db"
     },
     {
       "path": "backend/adam/core/contracts.py",
@@ -459,8 +469,8 @@
     },
     {
       "path": "backend/adam/desktop/service.py",
-      "bytes": 13024,
-      "sha256": "4ed340e6f0e8c2ca75b64e527e60387347721d8aa4ede72855d34eed1ffd3f78"
+      "bytes": 13342,
+      "sha256": "506ce6b9c4ae8b23266b79ce55330865f9129d95275e857e2d9302235a1e285b"
     },
     {
       "path": "backend/adam/distribution/__init__.py",
@@ -719,8 +729,8 @@
     },
     {
       "path": "backend/adam/models/llama_cpp.py",
-      "bytes": 7822,
-      "sha256": "cc9acb24e8c8e1614e27920df29b10a4d5f21564af4c5519348bc3a4c9330839"
+      "bytes": 9780,
+      "sha256": "e7b8d8dc2e830a5d32f7a9a7b7ad1a0366a0fe78d37fb1ff939a17aae27288bc"
     },
     {
       "path": "backend/adam/models/review.py",
@@ -1029,8 +1039,8 @@
     },
     {
       "path": "docs/operations/diagnostics.md",
-      "bytes": 5459,
-      "sha256": "5546abaee45f2eaa23ffe02b98865698329cf364917fbab7c1d08dfa7fb167b1"
+      "bytes": 8120,
+      "sha256": "da3a99686fc9716df98ebc08089fcfabc30c633d7a953f1405422aafdd44317e"
     },
     {
       "path": "docs/operations/distribution.md",
@@ -1110,7 +1120,7 @@
     {
       "path": "pyproject.toml",
       "bytes": 2065,
-      "sha256": "0a5efb154ddbc6e17d29436dc9404cab9dddf121146a65a35b36df3daa7dfe81"
+      "sha256": "a9ca42e34b617c8bd90e2a190757cd1ea78dd87d88f4bdc91531f0c50a189da9"
     },
     {
       "path": "requirements.lock.txt",
@@ -1119,8 +1129,8 @@
     },
     {
       "path": "scripts/build-desktop.ps1",
-      "bytes": 1673,
-      "sha256": "908a5eb41a28b3793700ffa4b94b5c36c8214cbd8aa2b61a8193752180785aa1"
+      "bytes": 1842,
+      "sha256": "32d340a835ae27820753dc4232839ee1b6240fb4ba850c3d610daa7e9307a5b6"
     },
     {
       "path": "scripts/check-environment.py",
@@ -1308,6 +1318,11 @@
       "sha256": "9247815d9226cb78f39d390461be9cb452a0ab701941ceb23be1ec0119cb0b38"
     },
     {
+      "path": "scripts/verify-frozen-backend.py",
+      "bytes": 1720,
+      "sha256": "0b5fa11a8c8e72bdeb344f8a51df944110164845ad4a7bd44885c49101df1010"
+    },
+    {
       "path": "tests/auth_client.py",
       "bytes": 574,
       "sha256": "a772e49b41c4c73aa3b1f25b4cd5624f4c752e5e91a199156c5cc5be48a9d903"
@@ -1356,6 +1371,11 @@
       "path": "tests/test_desktop_service.py",
       "bytes": 4958,
       "sha256": "70d23d3306739a81fc6ed1f3c538aea58d4699a6fac09d2983a1ce54efd4e2de"
+    },
+    {
+      "path": "tests/test_device_selection.py",
+      "bytes": 4298,
+      "sha256": "4898fb386ccc238ab09f5febfc2f1ffa6e991616c5f3543500dc9fa627d030a9"
     },
     {
       "path": "tests/test_distribution.py",
@@ -1413,6 +1433,11 @@
       "sha256": "fd7e1f95d96216492fabbf6a036932253d1dcef7b5695739ab9e6342e7258a49"
     },
     {
+      "path": "tests/test_lifecycle_races.py",
+      "bytes": 10739,
+      "sha256": "724e4f1b53fa5d7497dc8526bfccda00b6b319db35aa31474ab2914d0861e53e"
+    },
+    {
       "path": "tests/test_memory.py",
       "bytes": 4792,
       "sha256": "cdf963cacedcdc0d178bcf81f8dad963ecc51b6cd11700e5e62a2fccbc241288"
@@ -1449,8 +1474,8 @@
     },
     {
       "path": "tests/test_owned_model.py",
-      "bytes": 5954,
-      "sha256": "1c46ab35c4dc64cbdc1493d613d7cc576e873c0b4c5ab1f93afc83dde8ed239f"
+      "bytes": 9408,
+      "sha256": "20f1f1ff15d6b4ef8b98f65ed6c024dcc58b1f7eb40b0876a4bb5018d48ccd30"
     },
     {
       "path": "tests/test_persistence.py",
@@ -1531,6 +1556,11 @@
       "path": "tests/test_startup_repair.py",
       "bytes": 9348,
       "sha256": "a100965d663f26f2cf5299f421a76d453ea44900c2a15594c3283b4bb491204d"
+    },
+    {
+      "path": "tests/test_stream_deadlines.py",
+      "bytes": 5112,
+      "sha256": "0e42275b9c1cc9c821bdc6a057c578d5fee69ec873a925b4bd2f3742bffe0002"
     },
     {
       "path": "tests/test_task_recovery.py",

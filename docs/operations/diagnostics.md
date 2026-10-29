@@ -6,6 +6,15 @@ storage/configuration inspection, model lifecycle and measured resource admissio
 Model loading runs after service readiness so a slow or unavailable model does not
 block the owner login screen.
 
+Checks refresh every five seconds while this panel is open. The model activity
+display includes lifecycle-operation duration, active conversations and queued
+requests. Reload and performance/device buttons wait for the model to become
+idle. A chat sent during loading waits in a bounded, cancellable queue rather
+than failing immediately with `MODEL.LIFECYCLE_BUSY`. A deliberate model change
+during an active answer is still refused; finish or stop that answer first.
+Owned model warmup has a 120-second elapsed deadline, including health requests.
+A failed or cancelled warmup reaps the owned child; it cannot keep polling forever.
+
 Use **Refresh checks** for current memory, disk and threshold readings. A service
 failure produces a local fallback report with the preserved safe startup code.
 **Copy safe report** excludes conversations, credentials, user filenames and paths;
@@ -19,6 +28,20 @@ lost service; a slow operation may still be running, so check its status before
 retrying. Model loading can be retried without restarting the entire workspace.
 
 ## Performance modes
+
+**CPU/GPU selection is separate from Eco/Priority.** In Diagnostics, **Use GPU ·
+Vulkan** checks the runtime's first Vulkan adapter against measured GPU telemetry
+and requires room for the weights plus a context allowance. All layers are then
+requested on that GPU; discrete-GPU loading avoids retaining a host weight mapping.
+The setting is saved only after the model loads successfully. A failed device
+change preserves the saved selection and attempts one restoration of the previous
+model. An interrupted change keeps the old saved selection for the next startup.
+External servers must be configured in the application that manages them.
+
+GPU acceleration still consumes some system RAM and is subject to the same RAM
+and disk guards. Driver support, context size and other running apps affect whether
+a model fits. Diagnostics reports the configured device; a live owned process and
+GPU memory/activity provide separate evidence that it is actually running.
 
 | | Eco | Priority |
 | --- | --- | --- |
@@ -65,6 +88,24 @@ Source commands: `/help`, `/diagnostics`, `/performance eco`,
 answer review; `/careful off` restores standard generation. Careful mode is slower,
 keeps drafts out of the transcript, and does not certify correctness. Final
 truncation still fails; it is never stored as a completed answer.
+
+## Slow first replies and timeouts
+
+`model.first_token_timeout_seconds` allows up to 300 seconds by default for a
+first answer, including HTTP headers and prompt processing. Existing saved profiles
+receive this default without changing their saved `timeout_seconds` value.
+`model.timeout_seconds` is the idle allowance between answer fragments once text
+starts (120 seconds in the compact profile). Heartbeats and hidden reasoning do
+not count as answer progress. Stop cancels the connection in either phase.
+
+The native desktop allows extra time for preparation and Careful mode, then uses
+a 180-second visible-text idle watchdog instead of the old fixed five-minute
+request cutoff. A 30-minute whole-request ceiling still applies. Timed-out or
+cancelled partial answers are not saved as completed conversation turns.
+
+Diagnostics includes both model timeout values. A longer wait does not create
+RAM or improve model speed. Check resource readings and the selected performance
+mode; a smaller approved model may be needed alongside other demanding software.
 
 ## Running and stopping ADAM
 

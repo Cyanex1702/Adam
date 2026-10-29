@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod job;
+mod reply_clock;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::{
@@ -101,6 +102,7 @@ fn allowed(method: &str, path: &str) -> bool {
             "/desktop/setup",
             "/performance",
             "/model/reload",
+            "/model/device",
             "/models/scan",
             "/models/approve",
             "/models/automatic",
@@ -454,6 +456,7 @@ async fn api_request(
             || path.starts_with("/distribution")
             || path.starts_with("/models/")
             || path == "/model/reload"
+            || path == "/model/device"
             || path == "/performance"
         {
             300
@@ -549,11 +552,9 @@ async fn chat(
     let (port, nonce, token) = connection(&state)?;
     let epoch = state.epoch.load(Ordering::SeqCst);
     let token = token.ok_or("AUTH.REQUIRED")?;
-    let deadline_seconds = if body["careful"].as_bool().unwrap_or(false) {
-        600
-    } else {
-        300
-    };
+    let mut clock =
+        reply_clock::ReplyClock::new(Instant::now(), body["careful"].as_bool().unwrap_or(false));
+    let (progress, mut progress_rx) = watch::channel(0u64);
     let operation = async {
         let response = client()?
             .post(format!("http://127.0.0.1:{port}/desktop/chat"))
@@ -595,6 +596,13 @@ async fn chat(
                 {
                     terminal = true;
                 }
+                if event["event_type"] == "agent.token"
+                    && event["payload"]["text"]
+                        .as_str()
+                        .is_some_and(|text| !text.is_empty())
+                {
+                    progress.send_modify(|value| *value += 1);
+                }
                 app.emit("adam:event", json!({"request_id":request_id,"event":event}))
                     .map_err(|_| "DESKTOP.EVENT_FAILED")?;
             }
@@ -604,9 +612,14 @@ async fn chat(
         }
         Ok(json!({"finished":true}))
     };
-    tokio::select! {
-        result=tokio::time::timeout(Duration::from_secs(deadline_seconds),operation)=>result.map_err(|_| "MODEL.TIMEOUT")?,
-        _=cancel.changed()=>Ok(json!({"cancelled":true})),
+    tokio::pin!(operation);
+    loop {
+        tokio::select! {
+            result=&mut operation=>return result,
+            _=cancel.changed()=>return Ok(json!({"cancelled":true})),
+            _=progress_rx.changed()=>clock.text_received(Instant::now()),
+            _=tokio::time::sleep(clock.remaining(Instant::now()))=>return Err("MODEL.TIMEOUT".into()),
+        }
     }
 }
 #[tauri::command]
@@ -826,6 +839,9 @@ mod tests {
         assert!(!allowed("GET", "/developer/voice/enroll"));
         assert!(!allowed("POST", "/developer/voice/arbitrary"));
         assert!(allowed("GET", "/developer/mesh"));
+        assert!(allowed("POST", "/model/device"));
+        assert!(!allowed("GET", "/model/device"));
+        assert!(!allowed("POST", "/model/arbitrary"));
         assert!(allowed("POST", "/developer/mesh/revoke"));
         assert!(allowed("POST", "/mesh/session-state"));
         assert!(!allowed("POST", "/developer/mesh/arbitrary"));

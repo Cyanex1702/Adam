@@ -27,10 +27,25 @@ def installed(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("stop_loading", [False, True])
+@pytest.mark.parametrize("device", ["cpu", "vulkan"])
 def test_owned_load_unload_uses_fixed_arguments_and_stops_only_owned_handle(
-    tmp_path, monkeypatch, stop_loading
+    tmp_path, monkeypatch, stop_loading, device
 ):
     item = installed(tmp_path, monkeypatch)
+    item.device = device
+    monkeypatch.setattr(
+        "adam.compute.owned.command", lambda *args: "Vulkan0: Fixture GPU (8192 MiB)"
+    )
+    monkeypatch.setattr(
+        "adam.compute.owned.gpus",
+        lambda: [
+            {
+                "name": "Fixture GPU",
+                "vram_total_bytes": 8 * 1024**3,
+                "vram_used_bytes": 0,
+            }
+        ],
+    )
     calls = []
 
     class Process:
@@ -73,8 +88,15 @@ def test_owned_load_unload_uses_fixed_arguments_and_stops_only_owned_handle(
         assert (await provider.load()).status == "HEALTHY"
         handle = provider.process
         assert calls[0][0] == str(tmp_path / "runtime/llama/llama-server.exe")
-        assert "--no-agent" in calls[0] and "none" in calls[0]
-        assert "--no-repack" in calls[0]
+        assert "--no-agent" in calls[0]
+        assert calls[0][calls[0].index("--device") + 1] == (
+            "none" if device == "cpu" else "Vulkan0"
+        )
+        assert calls[0][calls[0].index("-ngl") + 1] == ("0" if device == "cpu" else "99")
+        assert ("--no-repack" in calls[0]) == (device == "cpu")
+        assert ("--load-mode" in calls[0]) == (device == "vulkan")
+        if device == "vulkan":
+            assert calls[0][calls[0].index("--load-mode") + 1] == "none"
         assert calls[0][calls[0].index("--batch-size") + 1] == "64"
         assert calls[0][calls[0].index("--ubatch-size") + 1] == "32"
         await provider.unload()
@@ -82,6 +104,37 @@ def test_owned_load_unload_uses_fixed_arguments_and_stops_only_owned_handle(
         await provider.unload()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "listing,total,used,code",
+    [
+        ("", 8 * 1024**3, 0, "MODEL.GPU_UNAVAILABLE"),
+        ("Vulkan0: Different GPU (8192 MiB)", 8 * 1024**3, 0, "RESOURCE.GPU_TELEMETRY_UNAVAILABLE"),
+        ("Vulkan0: Fixture GPU (8192 MiB)", 8 * 1024**3, 8 * 1024**3, "RESOURCE.VRAM_BUDGET"),
+        ("Vulkan0: Fixture GPU (8192 MiB)", None, None, "RESOURCE.GPU_TELEMETRY_UNAVAILABLE"),
+    ],
+)
+def test_gpu_load_rejects_missing_mismatched_or_full_adapter(
+    tmp_path, monkeypatch, listing, total, used, code
+):
+    item = installed(tmp_path, monkeypatch)
+    item.device = "vulkan"
+    monkeypatch.setattr("adam.compute.owned.command", lambda *args: listing)
+    monkeypatch.setattr(
+        "adam.compute.owned.gpus",
+        lambda: [
+            {
+                "name": "Fixture GPU",
+                "vram_total_bytes": total,
+                "vram_used_bytes": used,
+            }
+        ],
+    )
+    provider = OwnedLlamaProvider(item)
+    with pytest.raises(ComputeError, match=code):
+        asyncio.run(provider.load())
+    assert provider.process is None
 
 
 def test_owned_model_refuses_port_collision_without_touching_external_listener(
@@ -168,5 +221,53 @@ def test_priority_repacking_requires_room_for_an_extra_weight_layout(
         assert provider.repack == repack
         assert ("--no-repack" not in calls[0]) == repack
         await provider.unload()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("hung_health", [False, True])
+def test_elapsed_load_deadline_cleans_owned_process_even_when_health_hangs(
+    tmp_path, monkeypatch, hung_health
+):
+    item = installed(tmp_path, monkeypatch)
+
+    class Process:
+        stopped = False
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def poll(self):
+            return 0 if self.stopped else None
+
+        def terminate(self):
+            self.stopped = True
+
+        def wait(self, timeout):
+            return 0
+
+    monkeypatch.setattr("adam.compute.owned.subprocess.Popen", Process)
+    monkeypatch.setattr("adam.compute.owned.LOAD_TIMEOUT_SECONDS", 0.03)
+    monkeypatch.setattr("adam.compute.owned.ModelIndicator.start", lambda self: False)
+    monkeypatch.setattr(
+        "adam.compute.owned.ChildGuard",
+        lambda process: type("Guard", (), {"close": lambda self: None})(),
+    )
+    provider = OwnedLlamaProvider(item)
+    handles = []
+
+    async def health():
+        handles.append(provider.process)
+        if hung_health:
+            await asyncio.Event().wait()
+        return ModelHealth(status="DEGRADED", model_id=item.model.model_id)
+
+    monkeypatch.setattr(provider, "health_check", health)
+
+    async def scenario():
+        with pytest.raises(ComputeError, match="MODEL.LOAD_TIMEOUT"):
+            await asyncio.wait_for(provider.load(), timeout=1)
+        assert provider.process is None and provider.guard is None
+        assert handles and handles[0].stopped
 
     asyncio.run(scenario())
