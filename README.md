@@ -6,13 +6,13 @@
 
 **Chat locally. Keep your context. Use the model you choose.**
 
-[![Version](https://img.shields.io/badge/version-0.20.0-20cdbf?style=for-the-badge&labelColor=0c1725)](#release-verification)
+[![Version](https://img.shields.io/badge/version-0.20.4-20cdbf?style=for-the-badge&labelColor=0c1725)](#release-verification)
 [![Windows](https://img.shields.io/badge/Windows-x64-7892ff?style=for-the-badge&labelColor=0c1725&logo=windows)](#quick-start)
 [![Python](https://img.shields.io/badge/Python-3.13-f9cb85?style=for-the-badge&labelColor=0c1725&logo=python)](#build-from-source)
 [![Desktop](https://img.shields.io/badge/Tauri-%2B_React-9f9aff?style=for-the-badge&labelColor=0c1725)](#interfaces-and-extra-setup)
 [![License](https://img.shields.io/badge/license-Non--Commercial-f5a3ca?style=for-the-badge&labelColor=0c1725)](#license)
 
-[**Explore features**](#features-at-a-glance) · [**Quick start**](#quick-start) · [**Architecture**](#under-the-hood) · [**Build from source**](#build-from-source) · [**Docs**](#documentation)
+[**Tour**](#visual-walkthrough) · [**Explore features**](#features-at-a-glance) · [**Quick start**](#quick-start) · [**Architecture**](#under-the-hood) · [**Build from source**](#build-from-source) · [**Docs**](#documentation)
 
 <sub>Made by <strong>Cyanex</strong> · Local inference by default · Network features opt-in</sub>
 
@@ -22,9 +22,34 @@
 
 ## AI that remembers beyond the current chat
 
-ADAM is a **local-first personal AI application**, not just a chat window around a model. It can stream local responses, save and resume conversations, remember and correct personal context, answer questions about supported local documents with source references, and work with approved models on your device.
+ADAM is a personal AI for people who want a local assistant to pick up where they left off. It saves conversations and remembered facts in an application profile, so opening a fresh chat or switching to an approved model does not require re-entering the same context. You can inspect a remembered preference, correct it when it changes, or ask ADAM to forget it. It can also search imported documents and point you back to the sources used in an answer.
 
-With additional setup, ADAM also supports voice, OCR, Android browser access, opted-in web research and bounded computer actions with explicit review. The key design decision is that **memory, knowledge, identity and permissions belong to ADAM, not to the model weights**. Switching models does not mean starting over.
+For example, save your preferred editor, open a new conversation, and ask which editor you use. The answer can draw from saved memory. If you change editors, the memory tools let you update the preference and inspect its history. The terminal demo shows how to do this with explicit commands. The React/Tauri desktop is a separate interface to the same application services.
+
+For inference, ADAM hands the assembled conversation and context to a configured local model runtime. Model selection, knowledge, memory, and action permissions have separate application boundaries. Web research and supported computer actions have their own controls.
+
+## Visual walkthrough
+
+The supplied 0.20-series demo shows a saved preference recalled in a new conversation, then opens the memory search, diagnostics, and model library. The terminal capture shows explicit remember, correct, and forget commands.
+
+[Watch or download the video](https://raw.githubusercontent.com/Cyanex1702/Adam/main/docs/assets/tour/ADAM_demo_video.mp4)
+
+![Chat and a saved fact](docs/assets/tour/ADAM_02_chat_and_remember.png)
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/assets/tour/ADAM_01_unlock.png"><img src="docs/assets/tour/ADAM_01_unlock.png" alt="Owner unlock screen"></a><br><strong>Owner unlock screen</strong></td>
+    <td width="50%"><a href="docs/assets/tour/ADAM_03_recall_in_new_conversation.png"><img src="docs/assets/tour/ADAM_03_recall_in_new_conversation.png" alt="Recall in a new conversation"></a><br><strong>Recall in a new conversation</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/assets/tour/ADAM_04_saved_memory_search.png"><img src="docs/assets/tour/ADAM_04_saved_memory_search.png" alt="Saved memory search"></a><br><strong>Saved memory search</strong></td>
+    <td width="50%"><a href="docs/assets/tour/ADAM_05_diagnostics.png"><img src="docs/assets/tour/ADAM_05_diagnostics.png" alt="Diagnostics and resource status"></a><br><strong>Diagnostics and resource status</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/assets/tour/ADAM_06_model_library.png"><img src="docs/assets/tour/ADAM_06_model_library.png" alt="Approved local model library"></a><br><strong>Approved local model library</strong></td>
+    <td width="50%"><a href="docs/assets/tour/ADAM_07_terminal_remember_correct_forget.png"><img src="docs/assets/tour/ADAM_07_terminal_remember_correct_forget.png" alt="Memory commands in the source terminal"></a><br><strong>Memory commands in the source terminal</strong></td>
+  </tr>
+</table>
 
 <table>
 <tr>
@@ -143,6 +168,15 @@ The fictional demo also includes example project context:
 The **GitHub checkout/source ZIP** does **not** include runtime binaries, model weights or personal data. See [build from source](#build-from-source) to install dependencies and the model.
 
 ## Under the hood
+
+![ADAM system architecture](docs/assets/tour/ADAM_00_architecture.png)
+
+| Component | Responsibility |
+| --- | --- |
+| [Runtime](backend/adam/core/runtime.py) | Assembles conversation and personal context and coordinates the model call. |
+| [Memory service](backend/adam/memory/service.py) | Stores and retrieves memory records with supporting evidence. Profile state can outlive an individual chat session. |
+| [Storage](backend/adam/core/storage.py) | Keeps application state in SQLite. The model receives selected context through the runtime. |
+| [Desktop source](apps/desktop) and [architecture specification](docs/public/ARCHITECTURE.md) | Document the React/Tauri client and how the authenticated API, profile boundaries, and distinct action permissions fit together. |
 
 ### How the pieces connect
 
@@ -271,6 +305,10 @@ The dev server is **only a frontend preview**. Follow the [desktop setup guide](
 </details>
 
 ## Release verification
+
+![ADAM recorded results](docs/assets/tour/ADAM_08_eval_suite_chart.png)
+
+Supplied evaluation capture showing 22 of 22 cases passing across the listed categories. The release notes below describe the broader verification scope.
 
 The **v0.20.0** release records the following checks:
 
