@@ -1,7 +1,7 @@
 # ADR 0004: compact starter model
 
-The user supplied i5 6th generation, 16 GB DDR4, and Quadro M4000 hardware and
-authorized a downloaded model, preferably uncensored, with a normal-model fallback.
+Target hardware is a 6th-generation Intel Core i5, 16 GB DDR4, and a Quadro M4000.
+The selection evaluated an uncensored downloadable model alongside an unmodified fallback.
 The NVIDIA driver reports 8192 MiB VRAM. The reference Qwen3-8B remains configurable;
 a 4B Q4_K_M model is used for a smaller initial footprint. No architecture contract changed.
 

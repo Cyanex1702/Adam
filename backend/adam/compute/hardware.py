@@ -12,6 +12,7 @@ from typing import Any
 import psutil  # type: ignore[import-untyped]
 
 from adam.core.contracts import utc_now
+from adam.core.windows_paths import mapped_profile_root
 
 
 def assets_root() -> Path:
@@ -19,24 +20,8 @@ def assets_root() -> Path:
     if explicit:
         return Path(explicit).expanduser().resolve()
     primary = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local/share"))) / "ADAM"
-    if os.name == "nt":
-        cached = primary.parent / "Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/ADAM"
-        # Windows Store filesystem virtualization resolves existing public assets
-        # individually, even when the parent ADAM directory resolves to the host view.
-        # Accept only this known public cache, never redirect personal runtime data.
-        for relative in ["runtime/llama/llama-server.exe", "models/qwen3-4b-instruct.gguf"]:
-            path = primary / relative
-            if path.is_file() and path.resolve() == (cached / relative).resolve():
-                return cached
-        # A normal Start-menu launch has no Store virtualization. Public assets
-        # installed through Codex can still live in its known cache. Reuse that
-        # complete asset pair without changing the personal data directory.
-        required = ["runtime/llama/llama-server.exe", "models/qwen3-4b-instruct.gguf"]
-        if not (primary / "runtime/llama/llama-server.exe").is_file() and all(
-            (cached / name).is_file() for name in required
-        ):
-            return cached
-    return primary
+    anchors = ["runtime/llama/llama-server.exe", "models/qwen3-4b-instruct.gguf"]
+    return mapped_profile_root(primary, anchors) or primary
 
 
 def command(arguments: list[str], timeout: float = 3) -> str:

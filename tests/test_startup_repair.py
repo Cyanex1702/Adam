@@ -161,7 +161,7 @@ def test_windows_profile_mapping_requires_unanimous_private_anchors(tmp_path, mo
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     root = tmp_path / "ADAM"
-    cache = tmp_path / "Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/ADAM"
+    cache = tmp_path / "Packages/Example.Host_fixture/LocalCache/Local/ADAM"
     root.mkdir()
     cache.mkdir(parents=True)
     (root / "runtime.sqlite3").write_bytes(b"virtual-file-fixture")

@@ -32,7 +32,6 @@ BLOCKED_APPS = frozenset(
         "consent.exe",
         "logonui.exe",
         "adam-desktop.exe",
-        "codex.exe",
     }
 )
 PRIVATE_TITLES = (

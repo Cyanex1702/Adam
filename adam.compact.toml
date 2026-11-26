@@ -1,4 +1,4 @@
-# Compact local starter selected for the user's i5/16 GB/Quadro M4000 machine.
+# Compact local starter for an Intel Core i5, 16 GB RAM, and a Quadro M4000.
 [features]
 voice = true
 speaker_id = true

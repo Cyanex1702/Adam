@@ -1,6 +1,6 @@
 # ADR 0001: foundation boundaries
 
-Accepted 2026-10-05 for the user-authorized first implementation.
+Accepted 2026-10-05 for the first implementation.
 
 Python package `backend/adam` in a monorepo. FastAPI/CLI depend on core contracts;
 core has no UI or framework orchestration dependency. Model adapters own wire formats.

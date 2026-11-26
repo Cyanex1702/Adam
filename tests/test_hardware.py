@@ -5,15 +5,17 @@ from adam.compute import hardware
 
 
 @pytest.mark.skipif(hardware.os.name != "nt", reason="Windows Store asset layout")
-def test_normal_desktop_reuses_complete_public_store_assets(tmp_path, monkeypatch):
+def test_normal_desktop_requires_explicit_path_for_unmapped_store_assets(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    cached = tmp_path / "Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/ADAM"
+    cached = tmp_path / "Packages/Example.Host_fixture/LocalCache/Local/ADAM"
     for relative in ["runtime/llama/llama-server.exe", "models/qwen3-4b-instruct.gguf"]:
         path = cached / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"synthetic public asset")
         if relative.endswith(".exe"):
             assert hardware.assets_root() == tmp_path / "ADAM"
+    assert hardware.assets_root() == tmp_path / "ADAM"
+    monkeypatch.setenv("ADAM_ASSETS_ROOT", str(cached))
     assert hardware.assets_root() == cached
     assert not (tmp_path / "ADAM/runtime.sqlite3").exists()
 
@@ -22,7 +24,7 @@ def test_normal_desktop_reuses_complete_public_store_assets(tmp_path, monkeypatc
 def test_complete_primary_assets_win_over_store_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     primary = tmp_path / "ADAM"
-    cached = tmp_path / "Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/ADAM"
+    cached = tmp_path / "Packages/Example.Host_fixture/LocalCache/Local/ADAM"
     for root in [primary, cached]:
         for relative in ["runtime/llama/llama-server.exe", "models/qwen3-4b-instruct.gguf"]:
             path = root / relative

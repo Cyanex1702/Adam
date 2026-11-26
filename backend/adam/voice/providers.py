@@ -11,6 +11,7 @@ import numpy as np
 import onnxruntime as ort  # type: ignore[import-untyped]
 from numpy.typing import NDArray
 
+from adam.core.windows_paths import mapped_profile_root
 from adam.voice import windows
 from adam.voice.contracts import AudioInput, SpeechInput, VoiceConfig, VoiceError
 
@@ -22,15 +23,9 @@ def voice_assets(config: VoiceConfig) -> Path:
         root = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
     else:
         root = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
-    primary = root / "ADAM/models/voice"
-    cached = root / "Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/ADAM/models/voice"
-    if (
-        os.name == "nt"
-        and not (primary / "manifest.json").is_file()
-        and (cached / "manifest.json").is_file()
-    ):
-        return cached
-    return primary.resolve()
+    profile = root / "ADAM"
+    mapped = mapped_profile_root(profile, ["models/voice/manifest.json"])
+    return ((mapped or profile) / "models/voice").resolve()
 
 
 def decode_audio(body: AudioInput) -> NDArray[np.float32]:

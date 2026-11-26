@@ -10,6 +10,7 @@ from pydantic import Field, field_validator, model_validator
 
 from adam.compute.contracts import ComputeConfig
 from adam.core.contracts import Contract
+from adam.core.windows_paths import mapped_profile_root
 from adam.observability.service import TraceConfig
 from adam.resilience.contracts import BackupConfig
 from adam.voice.contracts import VoiceConfig
@@ -27,18 +28,10 @@ def resolve_data_dir(env: Mapping[str, str] | None = None) -> Path:
 
 
 def canonical_profile_dir(path: Path) -> Path:
-    """Bind a Windows virtualized profile to the files already backing it.
-
-    Only the known Store-host mapping is accepted, and only when every existing
-    private anchor agrees. Mixed profiles stay unmodified and fail strict scope
-    inspection. This never selects the public model cache merely because it exists.
-    """
+    """Use a Windows virtualized profile only when its existing anchors agree."""
     root = path.expanduser().resolve()
     local = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
     if os.name != "nt" or root != (local / "ADAM").resolve():
-        return root
-    cached = local / "Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/ADAM"
-    if cached.is_symlink() or (hasattr(cached, "is_junction") and cached.is_junction()):
         return root
     anchors = [
         "runtime.sqlite3",
@@ -59,44 +52,15 @@ def canonical_profile_dir(path: Path) -> Path:
         "identity/communication.yaml",
         "identity/epistemics.yaml",
     ]
-    resolved = []
-    for name in anchors:
-        file = root / name
-        if file.exists():
-            if file.is_symlink() or (hasattr(file, "is_junction") and file.is_junction()):
-                return root
-            resolved.append((file.resolve(), (cached / name).resolve()))
-    if resolved and all(
-        actual == expected and actual.is_relative_to(cached.resolve())
-        for actual, expected in resolved
-    ):
-        return cached.resolve()
-    return root
+    return mapped_profile_root(root, anchors) or root
 
 
 def resolve_embedding_dir(env: Mapping[str, str] | None = None) -> Path:
     values = os.environ if env is None else env
     base = resolve_data_dir({key: value for key, value in values.items() if key != "ADAM_DATA_DIR"})
-    primary = base / "models" / "multilingual-e5-small"
-    # Store-hosted Codex and ordinary PowerShell can see different LocalAppData views.
-    # Reuse only public model assets; never redirect personal runtime data here.
-    cached = (
-        base.parent
-        / "Packages"
-        / "OpenAI.Codex_2p2nqsd0c76g0"
-        / "LocalCache"
-        / "Local"
-        / "ADAM"
-        / "models"
-        / "multilingual-e5-small"
-    )
-    if (
-        os.name == "nt"
-        and not (primary / "model.onnx").is_file()
-        and all((cached / name).is_file() for name in ["model.onnx", "tokenizer.json"])
-    ):
-        return cached
-    return primary
+    relative = "models/multilingual-e5-small"
+    mapped = mapped_profile_root(base, [f"{relative}/model.onnx", f"{relative}/tokenizer.json"])
+    return (mapped or base) / relative
 
 
 class FeatureFlags(Contract):
